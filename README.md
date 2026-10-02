@@ -182,6 +182,91 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
+## Testing by hand
+
+Three layers, depending on what you want to know.
+
+**1. Automated, no running service**
+
+```sh
+cargo test --workspace -- --test-threads=4
+```
+
+Unit tests cover password hashing, token signing and verification, the rotation
+state machine, the rate limiter, name normalisation, and config parsing. The
+integration suites in `services/auth-service/tests/` drive the API over HTTP
+against a real Postgres in a container, including the token-theft case, and
+assert that neither the password nor the refresh token is ever stored in the
+clear. Each test starts and drops its own container, so nothing is left behind.
+
+**2. Smoke test against a running service**
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.test.yml up --build -d
+./scripts/smoke-test.ps1
+```
+
+44 checks across the whole surface: the auth flow, input validation, token
+rotation, the theft case, the admin registry, and that removing a downstream
+service really does revoke its tokens. Exits non-zero on failure, so it works
+as a gate.
+
+The test override exists for one reason: the smoke test is a single client
+making far more requests than a human would, so the production limit of 10 per
+minute would throttle it into a wall of 429s that proves nothing. Every security
+behaviour is unchanged.
+
+```sh
+./scripts/smoke-test.ps1 -BaseUrl http://localhost:8080
+```
+
+**3. Exploring it yourself**
+
+Worth doing once, because it shows what the numbers mean:
+
+```sh
+# Get a token
+TOKEN=$(curl -s localhost:8081/api/v1/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"email":"you@example.com","password":"correct horse battery staple"}' \
+  | jq -r .access_token)
+
+curl -s localhost:8081/api/v1/auth/me -H "authorization: Bearer $TOKEN"
+```
+
+Then the part worth trying. Register a downstream service, log in bound to it,
+then remove it and watch the same token die:
+
+```sh
+# Needs a token carrying the admin role
+curl -s -X POST localhost:8081/api/v1/admin/services \
+  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"name":"Billing API","scopes":["orders:read"]}'
+
+BOUND=$(curl -s localhost:8081/api/v1/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"email":"you@example.com","password":"correct horse battery staple","service":"Billing API"}' \
+  | jq -r .access_token)
+
+curl -s -o /dev/null -w '%{http_code}\n' localhost:8081/api/v1/auth/me \
+  -H "authorization: Bearer $BOUND"          # 200
+
+curl -s -X DELETE localhost:8081/api/v1/admin/services/billing-api \
+  -H "authorization: Bearer $TOKEN" > /dev/null
+
+curl -s -o /dev/null -w '%{http_code}\n' localhost:8081/api/v1/auth/me \
+  -H "authorization: Bearer $BOUND"          # 403, immediately
+```
+
+The admin panel at `/admin/` is the same thing with buttons.
+
+To look at what is actually stored, while the stack is up:
+
+```sh
+docker compose exec postgres psql -U auth -d auth -c "SELECT email, left(password_hash, 30) FROM users;"
+docker compose exec postgres psql -U auth -d auth -c "SELECT name, status, token_version FROM services;"
+```
+
 ## Layout
 
 ```

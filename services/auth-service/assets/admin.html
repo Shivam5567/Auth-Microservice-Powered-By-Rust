@@ -172,6 +172,20 @@
   var BASE = "/api/v1/admin/services";
   var $ = function (id) { return document.getElementById(id); };
 
+  // Lets someone be handed a ready-to-use link, e.g. /admin/#token=eyJ...
+  // The fragment is never sent to the server, and it is scrubbed from the
+  // address bar immediately so the token does not linger in history.
+  function tokenFromHash() {
+    var hash = window.location.hash.replace(/^#/, "");
+    if (!hash) return null;
+    var match = /(?:^|&)token=([^&]+)/.exec(hash);
+    if (!match) return null;
+    try {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    } catch (e) { /* older browsers simply keep the fragment */ }
+    try { return decodeURIComponent(match[1]); } catch (e) { return match[1]; }
+  }
+
   function token() { return $("token").value.trim(); }
 
   function notice(kind, text) {
@@ -189,9 +203,13 @@
 
   // The token lives in sessionStorage so a page reload does not lose it,
   // but it does not survive closing the tab.
+  // A token in the fragment wins, then a previous visit, then nothing.
+  var fromLink = tokenFromHash();
+  if (fromLink) $("token").value = fromLink;
   try {
-    $("token").value = sessionStorage.getItem("auth-admin-token") || "";
-  } catch (e) { /* storage disabled; token stays in memory only */ }
+    if (!fromLink) $("token").value = sessionStorage.getItem("auth-admin-token") || "";
+    if (fromLink) sessionStorage.setItem("auth-admin-token", fromLink);
+  } catch (e) { /* storage disabled; the token stays in the field only */ }
 
   $("save-token").addEventListener("click", function () {
     try { sessionStorage.setItem("auth-admin-token", token()); } catch (e) {}

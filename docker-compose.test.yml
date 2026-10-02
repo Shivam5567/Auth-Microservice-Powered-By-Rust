@@ -1,0 +1,16 @@
+# Overrides for running the service against a real database in a test-friendly
+# configuration.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up --build -d
+#   ./scripts/smoke-test.ps1
+#
+# The only meaningful difference is the rate limit. The smoke test makes far
+# more requests than a human would from one IP, so the production default of 10
+# per minute would throttle it and make the run meaningless. Everything else,
+# including every security behaviour, is unchanged.
+
+services:
+  auth-service:
+    environment:
+      AUTH_RATE_LIMIT_PER_MINUTE: "100000"
+      RUST_LOG: auth_service=info,tower_http=warn

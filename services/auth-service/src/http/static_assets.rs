@@ -63,4 +63,18 @@ mod tests {
             );
         }
     }
+
+    /// A ready-to-use link has to be possible, otherwise the panel can only be
+    /// used by pasting a token by hand.
+    #[test]
+    fn the_panel_accepts_a_token_from_the_fragment() {
+        assert!(PANEL.contains("tokenFromHash"));
+        assert!(PANEL.contains("location.hash"));
+    }
+
+    /// The token must not survive in the address bar or in history.
+    #[test]
+    fn the_panel_scrubs_the_token_from_the_url() {
+        assert!(PANEL.contains("replaceState"));
+    }
 }
