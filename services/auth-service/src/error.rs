@@ -1,5 +1,16 @@
 pub use common::{AppError, AppResult, ErrorEnvelope};
 
+/// Converts a driver error, logging the detail and hiding it from the caller.
+pub fn from_sqlx(err: sqlx::Error) -> AppError {
+    match err {
+        sqlx::Error::RowNotFound => AppError::not_found("resource not found"),
+        other => {
+            tracing::error!(error = %other, "database error");
+            AppError::internal("database error")
+        }
+    }
+}
+
 /// Bridges driver errors into [`AppError`].
 ///
 /// `AppError` lives in the shared `common` crate, so the orphan rule rules out
@@ -10,17 +21,8 @@ pub trait IntoAppResult<T> {
 }
 
 impl<T> IntoAppResult<T> for Result<T, sqlx::Error> {
-    /// Driver failures are logged in full and reported to the caller as a
-    /// generic 500, so messages such as constraint names or host addresses
-    /// never reach an untrusted caller.
     fn into_app(self) -> AppResult<T> {
-        self.map_err(|err| match err {
-            sqlx::Error::RowNotFound => AppError::not_found("resource not found"),
-            other => {
-                tracing::error!(error = %other, "database error");
-                AppError::internal("database error")
-            }
-        })
+        self.map_err(from_sqlx)
     }
 }
 

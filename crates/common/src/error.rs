@@ -134,6 +134,24 @@ impl AppError {
     }
 }
 
+/// Renders the error as the shared JSON envelope with the matching status.
+///
+/// Implemented here rather than in each service so that `AppError: IntoResponse`
+/// holds everywhere, which is what lets handlers return `AppResult<T>` and lets
+/// custom extractors use `AppError` as their rejection type.
+impl axum::response::IntoResponse for AppError {
+    fn into_response(self) -> axum::response::Response {
+        let status = self.status_code();
+        if status.is_server_error() {
+            tracing::error!(error = %self, "request failed");
+        } else {
+            tracing::debug!(error = %self, code = self.code(), "request rejected");
+        }
+
+        (status, axum::Json(self.envelope())).into_response()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

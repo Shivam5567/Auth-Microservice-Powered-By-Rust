@@ -50,7 +50,9 @@ impl Config {
         Self::from_source(&|key| std::env::var(key).ok())
     }
 
-    fn from_source(get: &dyn Fn(&str) -> Option<String>) -> Result<Self, ConfigError> {
+    pub fn from_source(
+        get: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<Self, ConfigError> {
         let database_url =
             Secret(get("DATABASE_URL").ok_or(ConfigError::Missing("DATABASE_URL"))?);
 
