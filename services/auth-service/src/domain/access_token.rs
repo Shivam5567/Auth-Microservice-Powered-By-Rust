@@ -141,17 +141,38 @@ mod tests {
 
     #[test]
     fn an_expired_token_is_rejected() {
-        // A zero-length window makes exp == iat, which is expired on arrival.
-        let expired = issue(
-            &KEYS,
-            meta(Duration::from_secs(0)),
-            Uuid::new_v4(),
-            vec![],
-            0,
-        )
-        .unwrap();
-        let err = verify(&KEYS, meta(Duration::from_secs(900)), &expired.token).unwrap_err();
+        let token = token_expiring_ago(time::Duration::seconds(3_600));
+        let err = verify(&KEYS, meta(Duration::from_secs(900)), &token).unwrap_err();
         assert_eq!(err.status_code(), 401);
+    }
+
+    #[test]
+    fn a_token_just_past_expiry_is_still_within_the_leeway_window() {
+        // Verification tolerates 5 seconds of clock skew, so a token that
+        // expired two seconds ago must still pass.
+        let token = token_expiring_ago(time::Duration::seconds(2));
+        assert!(verify(&KEYS, meta(Duration::from_secs(900)), &token).is_ok());
+    }
+
+    /// Signs a genuinely expired token by hand.
+    ///
+    /// `issue` cannot produce one: a zero-length TTL yields `exp == iat`, which
+    /// is still inside the leeway window.
+    fn token_expiring_ago(ago: time::Duration) -> String {
+        let now = OffsetDateTime::now_utc();
+        let claims = Claims {
+            sub: Uuid::new_v4().to_string(),
+            roles: vec![],
+            ver: 0,
+            iss: "auth-service".into(),
+            aud: "auth-service-clients".into(),
+            iat: (now - ago - time::Duration::seconds(900)).unix_timestamp(),
+            exp: (now - ago).unix_timestamp(),
+            jti: Uuid::new_v4().to_string(),
+        };
+        let mut header = Header::new(Algorithm::RS256);
+        header.kid = Some(KEYS.kid().to_owned());
+        encode(&header, &claims, KEYS.encoding()).unwrap()
     }
 
     #[test]

@@ -45,9 +45,9 @@ impl SigningKeys {
     }
 
     pub fn from_pem(private_pem: &str, public_pem: &str) -> Result<Self, AppError> {
-        let encoding = EncodingKey::from_rsa_pem(private_pem)
+        let encoding = EncodingKey::from_rsa_pem(private_pem.as_bytes())
             .map_err(|e| AppError::internal(format!("invalid private key: {e}")))?;
-        let decoding = DecodingKey::from_rsa_pem(public_pem)
+        let decoding = DecodingKey::from_rsa_pem(public_pem.as_bytes())
             .map_err(|e| AppError::internal(format!("invalid public key: {e}")))?;
 
         // The key id is a digest of the public key, so rotating the keypair
@@ -89,15 +89,17 @@ fn generate_keypair(private_path: &Path, public_path: &Path) -> Result<(), AppEr
 
     // PKCS#1 for the private key, SPKI for the public key: these are the two
     // encodings `jsonwebtoken` accepts for RSA.
-    fs::write(private_path, private.to_pkcs1_pem(LineEnding::LF).as_bytes())
+    let private_pem = private
+        .to_pkcs1_pem(LineEnding::LF)
+        .map_err(|e| AppError::internal(format!("cannot encode private key: {e}")))?;
+    let public_pem = public
+        .to_public_key_pem(LineEnding::LF)
+        .map_err(|e| AppError::internal(format!("cannot encode public key: {e}")))?;
+
+    fs::write(private_path, private_pem.as_bytes())
         .map_err(|e| AppError::internal(format!("cannot write {}: {e}", private_path.display())))?;
-    fs::write(
-        public_path,
-        public
-            .to_public_key_pem(LineEnding::LF)
-            .map_err(|e| AppError::internal(format!("cannot encode public key: {e}")))?,
-    )
-    .map_err(|e| AppError::internal(format!("cannot write {}: {e}", public_path.display())))?;
+    fs::write(public_path, public_pem.as_bytes())
+        .map_err(|e| AppError::internal(format!("cannot write {}: {e}", public_path.display())))?;
 
     tracing::warn!(
         private = %private_path.display(),

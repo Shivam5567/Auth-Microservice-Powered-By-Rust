@@ -1,11 +1,10 @@
-use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng};
-use argon2::{Algorithm, Argon2, Params, Version};
+use argon2::{Algorithm, Argon2, Params, PasswordHasher, PasswordVerifier, Version};
 
 use crate::error::AppError;
 
 /// OWASP-recommended Argon2id parameters: 19 MiB of memory, 2 iterations,
-/// 1 degree of parallelism. The defaults bundled with the crate use only
-/// 16 KiB, which is far too weak for password storage.
+/// 1 degree of parallelism. The crate defaults use far less memory, which is
+/// not appropriate for password storage.
 const MEMORY_KIB: u32 = 19 * 1024;
 const ITERATIONS: u32 = 2;
 const PARALLELISM: u32 = 1;
@@ -16,25 +15,22 @@ fn hasher() -> Result<Argon2<'static>, AppError> {
     Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
 }
 
+/// Hashes a password into a PHC string, generating a fresh random salt.
 pub fn hash_password(password: &str) -> Result<String, AppError> {
-    let salt = SaltString::generate(&mut OsRng);
     let hash = hasher()?
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map_err(|e| AppError::internal(format!("password hashing failed: {e}")))?;
     Ok(hash.to_string())
 }
 
 /// Verifies a password against a stored PHC string.
 ///
-/// A malformed stored hash yields `false` rather than an error, because for
-/// the caller the two cases are indistinguishable and both mean "no match".
+/// A malformed stored hash yields `false` rather than an error, because for the
+/// caller the two cases are indistinguishable and both mean "no match".
 pub fn verify_password(password: &str, stored_hash: &str) -> bool {
-    let Ok(parsed) = PasswordHash::new(stored_hash) else {
-        return false;
-    };
     hasher()
         .and_then(|h| {
-            h.verify_password(password.as_bytes(), &parsed)
+            h.verify_password(password.as_bytes(), stored_hash)
                 .map_err(|e| AppError::internal(format!("password verification failed: {e}")))
         })
         .is_ok()
@@ -55,6 +51,7 @@ mod tests {
         let hash = hash_password("correct horse battery staple").unwrap();
         assert!(!verify_password("Correct horse battery staple", &hash));
         assert!(!verify_password("", &hash));
+        assert!(!verify_password(&"x".repeat(10_000), &hash));
     }
 
     #[test]
@@ -71,11 +68,13 @@ mod tests {
         let hash = hash_password("x").unwrap();
         assert!(hash.starts_with("$argon2id$"), "got: {hash}");
         assert!(hash.contains("m=19456"), "memory cost not recorded: {hash}");
+        assert!(hash.contains("t=2"), "iteration count not recorded: {hash}");
     }
 
     #[test]
     fn a_corrupt_stored_hash_fails_closed() {
         assert!(!verify_password("anything", "not-a-phc-string"));
         assert!(!verify_password("anything", ""));
+        assert!(!verify_password("anything", "$argon2id$v=19$m=1,t=1,p=1$"));
     }
 }
