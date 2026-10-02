@@ -168,7 +168,7 @@ pub async fn refresh(
     // Carry the original session's fingerprint forward so a rotated token
     // still shows where the session started.
     if let Err(e) = sqlx::query(
-        "UPDATE refresh_tokens SET user_agent = $2, ip_address = $3 WHERE token_hash = $1",
+        "UPDATE refresh_tokens SET user_agent = $2, ip_address = $3::inet WHERE token_hash = $1",
     )
     .bind(&successor.hash)
     .bind(ctx.user_agent())

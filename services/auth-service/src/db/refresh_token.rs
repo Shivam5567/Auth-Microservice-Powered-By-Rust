@@ -128,7 +128,7 @@ pub async fn start_family(
     sqlx::query(
         "INSERT INTO refresh_tokens
              (user_id, token_hash, family_id, expires_at, user_agent, ip_address)
-         VALUES ($1, $2, $3, $4, $5, $6)",
+         VALUES ($1, $2, $3, $4, $5, $6::inet)",
     )
     .bind(user_id)
     .bind(&issued.hash)

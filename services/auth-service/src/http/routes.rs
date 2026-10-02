@@ -20,10 +20,19 @@ use crate::state::AppState;
 const MAX_BODY_BYTES: usize = 16 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// Failed login and registration attempts allowed per client per minute.
-const AUTH_ATTEMPTS_PER_MINUTE: u32 = 10;
+/// Window over which the per-IP auth attempt allowance is counted.
+const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 
 pub fn router(state: AppState) -> Router {
+    let limit = state.config.auth_rate_limit_per_minute;
+    router_with_rate_limit(state, limit)
+}
+
+/// The auth routes are throttled per client IP to blunt credential stuffing.
+///
+/// Exposed with an explicit limit so tests can raise it and still exercise
+/// throttling deliberately.
+pub fn router_with_rate_limit(state: AppState, limit_per_minute: u32) -> Router {
     let auth_routes = Router::new()
         .route("/register", post(handlers::register))
         .route("/login", post(handlers::login))
@@ -31,10 +40,7 @@ pub fn router(state: AppState) -> Router {
         .route("/logout", post(handlers::logout))
         .route("/me", get(handlers::me))
         .route_layer(axum::middleware::from_fn_with_state(
-            Arc::new(RateLimiter::new(
-                AUTH_ATTEMPTS_PER_MINUTE,
-                Duration::from_secs(60),
-            )),
+            Arc::new(RateLimiter::new(limit_per_minute, RATE_LIMIT_WINDOW)),
             middleware::rate_limit,
         ));
 

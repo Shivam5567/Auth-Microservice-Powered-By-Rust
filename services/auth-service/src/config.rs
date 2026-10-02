@@ -33,6 +33,8 @@ pub struct Config {
     pub refresh_token_ttl: Duration,
     pub cors_allowed_origins: Vec<String>,
     pub run_migrations: bool,
+    /// Failed auth attempts allowed per client IP per minute.
+    pub auth_rate_limit_per_minute: u32,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -48,6 +50,12 @@ impl Config {
     /// anything missing or malformed so a misconfigured deployment never starts.
     pub fn from_env() -> Result<Self, ConfigError> {
         Self::from_source(&|key| std::env::var(key).ok())
+    }
+
+    /// Builds the configuration from an arbitrary lookup, so tests can supply
+    /// their own values without mutating the process environment.
+    pub fn from_source_with(get: &dyn Fn(&str) -> Option<String>) -> Result<Self, ConfigError> {
+        Self::from_source(get)
     }
 
     pub fn from_source(
@@ -73,6 +81,11 @@ impl Config {
             "2592000",
         )?;
         let run_migrations = parse_or("RUN_MIGRATIONS", get("RUN_MIGRATIONS"), "true")?;
+        let auth_rate_limit_per_minute = parse_or(
+            "AUTH_RATE_LIMIT_PER_MINUTE",
+            get("AUTH_RATE_LIMIT_PER_MINUTE"),
+            "10",
+        )?;
 
         if access_token_ttl_secs == 0 {
             return Err(ConfigError::Invalid {
@@ -114,6 +127,7 @@ impl Config {
             refresh_token_ttl: Duration::from_secs(refresh_token_ttl_secs),
             cors_allowed_origins,
             run_migrations,
+            auth_rate_limit_per_minute,
         })
     }
 }

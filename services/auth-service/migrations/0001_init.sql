@@ -1,5 +1,8 @@
 -- Auth service initial schema.
 
+-- Built in from PostgreSQL 13 onwards; needed on 12 and older.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE roles (
     id          SMALLSERIAL PRIMARY KEY,
     name        TEXT        NOT NULL UNIQUE,
