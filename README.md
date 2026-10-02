@@ -13,8 +13,60 @@ workspace that is meant to hold more.
 | `POST` | `/api/v1/auth/refresh` | – | Rotates the refresh token, returns a new pair |
 | `POST` | `/api/v1/auth/logout` | – | Ends one session, or all with `all_devices` |
 | `GET` | `/api/v1/auth/me` | Bearer | The caller's profile and roles |
+| `GET` | `/admin/` | – | The admin panel page |
 | `GET` | `/health` | – | Liveness |
 | `GET` | `/health/ready` | – | Readiness, checks the database |
+
+## The admin panel
+
+A single page at `/admin/` for managing the downstream services that consume
+this one. No frontend build step: the HTML is embedded in the binary and talks
+to the admin API with plain `fetch`.
+
+Every admin route needs a token carrying the `admin` role, which you paste into
+the panel. To get the first one, set `ADMIN_BOOTSTRAP_EMAILS` to your own
+address before registering, then clear it once you exist:
+
+```sh
+ADMIN_BOOTSTRAP_EMAILS=you@example.com docker compose up -d
+# register you@example.com, then log in and paste the token into the panel
+```
+
+The API behind it, all under `/api/v1/admin/services` and all `admin`-gated:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/` | List, with optional `status`, `search`, `limit`, `offset` |
+| `GET` | `/summary` | Counts for the header |
+| `GET` | `/events` | Recent admin activity |
+| `GET` | `/{name}` | One service |
+| `POST` | `/` | Register a service |
+| `PATCH` | `/{name}` | Edit description and scopes |
+| `DELETE` | `/{name}` | Remove it, revoking its live tokens |
+| `POST` | `/{name}/restore` | Bring it back |
+
+Names are normalised to a lowercase slug, so `Billing API` becomes
+`billing-api` and cannot be registered twice under a different spelling.
+
+### Removal is revocation, not just a status change
+
+A service carries a `token_version` that is stamped into any access token minted
+for it. Removing the service disables it and bumps that version, so tokens
+already in flight stop verifying on the next request rather than lingering until
+they expire. Restoring bumps it again, which is why a token issued before a
+removal does not come back to life.
+
+Sessions are pinned to the service they were opened for, including across
+refresh rotation. A decommissioned service therefore cannot be kept alive by
+exchanging a refresh token, and a refreshed token cannot escape the
+revocation.
+
+Tokens issued *without* naming a service are deliberately unaffected: they
+belong to no single downstream service, so removing one service should not log
+everyone out.
+
+Removal is a soft delete. The row and its history stay, and `restore` brings it
+back. Every change is appended to `service_events` with the acting admin.
 
 ## How the security works
 
@@ -42,6 +94,11 @@ timing does not disclose which addresses are registered.
 **Signing out everywhere kills live tokens.** `users.token_version` is embedded
 in every access token, so bumping it invalidates tokens that have not yet
 expired.
+
+**Logging in for a service.** `login` accepts an optional `service` field. When
+set, the returned tokens are bound to that service and die when it is removed.
+Naming a service that is not registered is a 400, and one that has been
+decommissioned is a 403, rather than quietly falling back to an unbound token.
 
 **Auth routes are throttled per client IP** (10/minute by default). A 429 comes
 back in the same JSON envelope as every other error.

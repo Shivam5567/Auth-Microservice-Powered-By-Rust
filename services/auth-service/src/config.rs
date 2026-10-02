@@ -35,6 +35,13 @@ pub struct Config {
     pub run_migrations: bool,
     /// Failed auth attempts allowed per client IP per minute.
     pub auth_rate_limit_per_minute: u32,
+    /// Addresses that receive the `admin` role on registration.
+    ///
+    /// The admin panel is unreachable until somebody holds the admin role, so
+    /// there has to be a way to bootstrap the first one. Naming the addresses
+    /// explicitly keeps that auditable, and is far better than promoting
+    /// whoever registers first.
+    pub admin_emails: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -107,6 +114,18 @@ impl Config {
             })
             .unwrap_or_default();
 
+        // Normalised the same way registered addresses are, so a stray space
+        // or capital cannot silently fail to match.
+        let admin_emails: Vec<String> = get("ADMIN_BOOTSTRAP_EMAILS")
+            .map(|raw| {
+                raw.split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_lowercase())
+                    .collect()
+            })
+            .unwrap_or_default();
+
         Ok(Self {
             service_name: "auth-service",
             bind_addr,
@@ -125,6 +144,7 @@ impl Config {
             cors_allowed_origins,
             run_migrations,
             auth_rate_limit_per_minute,
+            admin_emails,
         })
     }
 }
@@ -221,5 +241,23 @@ mod tests {
         let rendered = format!("{cfg:?}");
         assert!(!rendered.contains("postgres://"), "got: {rendered}");
         assert!(rendered.contains("redacted"));
+    }
+
+    #[test]
+    fn no_admins_are_bootstrapped_by_default() {
+        let cfg = Config::from_source(&source(&valid())).unwrap();
+        assert!(cfg.admin_emails.is_empty());
+    }
+
+    /// Addresses are compared lowercased, so a capitalised entry still matches.
+    #[test]
+    fn bootstrap_admins_are_trimmed_and_lowercased() {
+        let mut pairs = valid();
+        pairs.push((
+            "ADMIN_BOOTSTRAP_EMAILS",
+            " Alice@Example.com , bob@example.com ,",
+        ));
+        let cfg = Config::from_source(&source(&pairs)).unwrap();
+        assert_eq!(cfg.admin_emails, ["alice@example.com", "bob@example.com"]);
     }
 }

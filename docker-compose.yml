@@ -47,6 +47,9 @@ services:
       AUTH_RATE_LIMIT_PER_MINUTE: "10"
       RUN_MIGRATIONS: "true"
       RUST_LOG: auth_service=info,tower_http=info
+      # Comma-separated. Register with one of these addresses to obtain the
+      # first admin token, then clear it.
+      ADMIN_BOOTSTRAP_EMAILS: "${ADMIN_BOOTSTRAP_EMAILS:-}"
       # Comma-separated; leave unset to send no CORS headers at all.
       CORS_ALLOWED_ORIGINS: ""
     ports:

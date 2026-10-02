@@ -44,8 +44,9 @@ pub async fn login(
 ) -> AppResult<impl IntoResponse> {
     super::extract::validate(&payload)?;
 
+    let target = service::resolve_service(&state, payload.service.as_deref()).await?;
     let ctx = session_context(&headers, Some(peer));
-    let pair = service::login(&state, &payload.email, &payload.password, ctx).await?;
+    let pair = service::login(&state, &payload.email, &payload.password, ctx, target).await?;
 
     tracing::info!(user_id = %pair.user.id, peer = %peer.ip(), "user signed in");
     Ok(Json(AuthResponse::from(pair)).into_response())

@@ -99,7 +99,7 @@ pub enum CreateUserOutcome {
     EmailTaken,
 }
 
-/// Creates a user and grants the default role, atomically.
+/// Creates a user and grants the given roles, atomically.
 ///
 /// Accepts an existing transaction so a caller can compose it with other
 /// writes in the same unit of work.
@@ -107,7 +107,7 @@ pub async fn create_in(
     tx: &mut Transaction<'_, Postgres>,
     email: &str,
     password_hash: &str,
-    default_role: &str,
+    roles: &[&str],
 ) -> AppResult<CreateUserOutcome> {
     let inserted = sqlx::query_as::<_, (Uuid,)>(
         "INSERT INTO users (email, password_hash)
@@ -130,11 +130,11 @@ pub async fn create_in(
 
     sqlx::query(
         "INSERT INTO user_roles (user_id, role_id)
-         SELECT $1, id FROM roles WHERE name = $2
+         SELECT $1, id FROM roles WHERE name = ANY($2)
          ON CONFLICT DO NOTHING",
     )
     .bind(id)
-    .bind(default_role)
+    .bind(roles)
     .execute(&mut **tx)
     .await
     .into_app()?;

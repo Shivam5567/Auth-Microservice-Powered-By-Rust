@@ -1,16 +1,21 @@
+pub mod admin;
 use std::net::IpAddr;
 
 use serde::Serialize;
 use uuid::Uuid;
 
 use crate::db::refresh_token as refresh_repo;
+use crate::db::service as service_repo;
 use crate::db::user::{self, CreateUserOutcome, UserProfile};
+use crate::domain::access_token::ServiceBinding;
+use crate::domain::service::{ServiceName, Status};
 use crate::domain::{access_token, password};
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
 /// Role granted to every newly registered account.
 const DEFAULT_ROLE: &str = "user";
+const ADMIN_ROLE: &str = "admin";
 
 /// A real Argon2id hash of a value nobody knows, used to spend the same CPU on
 /// a failed login whether or not the account exists.
@@ -60,12 +65,22 @@ pub async fn register(state: &AppState, email: &str, raw_password: &str) -> AppR
     let email = crate::domain::normalize_email(email);
     let password_hash = password::hash_password(raw_password)?;
 
+    let mut roles: Vec<&str> = vec![DEFAULT_ROLE];
+    if state.config.admin_emails.iter().any(|a| a == &email) {
+        roles.push(ADMIN_ROLE);
+        tracing::warn!(
+            %email,
+            "granting the admin role from ADMIN_BOOTSTRAP_EMAILS; remove the address \
+             once the first administrator exists"
+        );
+    }
+
     let mut tx = state.pool.begin().await.map_err(|e| {
         tracing::error!(error = %e, "failed to begin registration transaction");
         AppError::internal("database error")
     })?;
 
-    let id = match user::create_in(&mut tx, &email, &password_hash, DEFAULT_ROLE).await? {
+    let id = match user::create_in(&mut tx, &email, &password_hash, &roles).await? {
         CreateUserOutcome::Created(id) => id,
         CreateUserOutcome::EmailTaken => {
             return Err(AppError::conflict(
@@ -84,6 +99,7 @@ pub async fn login(
     email: &str,
     raw_password: &str,
     ctx: SessionContext,
+    target: Option<ServiceBinding>,
 ) -> AppResult<TokenPair> {
     let email = crate::domain::normalize_email(email);
     let found = user::User::find_by_email(&state.pool, &email).await?;
@@ -109,10 +125,45 @@ pub async fn login(
         ttl_secs(state),
         ctx.user_agent(),
         ctx.ip_address(),
+        target.as_ref().map(|s| s.name.as_str()),
     )
     .await?;
 
-    build_pair(state, found.id, issued.token).await
+    build_pair(state, found.id, issued.token, target).await
+}
+
+/// Resolves the downstream service a token is being minted for.
+///
+/// A token with no service is not tied to one, and so is unaffected by that
+/// service's removal. Naming a service that is unknown or disabled is an error
+/// rather than a silent fallback, because the caller clearly intended to reach
+/// it and quietly minting a general token would hide the mistake.
+pub async fn resolve_service(
+    state: &AppState,
+    requested: Option<&str>,
+) -> AppResult<Option<ServiceBinding>> {
+    let Some(requested) = requested else {
+        return Ok(None);
+    };
+
+    let name = ServiceName::parse(requested).map_err(|e| AppError::validation(e.to_string()))?;
+
+    let Some(record) = service_repo::find_by_name(&state.pool, &name).await? else {
+        return Err(AppError::bad_request(format!(
+            "'{name}' is not a registered service"
+        )));
+    };
+
+    if record.status != Status::Active.as_str() {
+        return Err(AppError::forbidden(format!(
+            "the service '{name}' has been decommissioned"
+        )));
+    }
+
+    Ok(Some(ServiceBinding {
+        name: record.name,
+        token_version: record.token_version,
+    }))
 }
 
 /// Exchanges a refresh token for a new pair, rotating the old one.
@@ -138,6 +189,11 @@ pub async fn refresh(
         }
     };
 
+    // The session stays bound to the service it was opened for. Re-resolving it
+    // here means a service decommissioned mid-session cannot be kept alive by
+    // refreshing, and the successor token is stamped with the current version.
+    let target = resolve_service(state, reusable.service_name.as_deref()).await?;
+
     let mut tx = state.pool.begin().await.map_err(|e| {
         tracing::error!(error = %e, "failed to begin refresh transaction");
         AppError::internal("database error")
@@ -162,6 +218,7 @@ pub async fn refresh(
         reusable.family_id,
         reusable.id,
         ttl_secs(state),
+        target.as_ref().map(|s| s.name.as_str()),
     )
     .await?;
 
@@ -182,7 +239,7 @@ pub async fn refresh(
 
     commit(tx, "refresh").await?;
 
-    build_pair(state, reusable.user_id, successor.token).await
+    build_pair(state, reusable.user_id, successor.token, target).await
 }
 
 /// Revokes one session, or every session the user has when `all` is set.
@@ -262,6 +319,7 @@ async fn build_pair(
     state: &AppState,
     user_id: Uuid,
     refresh_token: String,
+    target: Option<ServiceBinding>,
 ) -> AppResult<TokenPair> {
     let profile = user::User::profile(&state.pool, user_id).await?;
     let user = user::User::find_by_id(&state.pool, user_id)
@@ -274,6 +332,7 @@ async fn build_pair(
         user_id,
         profile.roles.clone(),
         user.token_version,
+        target.as_ref(),
     )?;
 
     Ok(TokenPair {

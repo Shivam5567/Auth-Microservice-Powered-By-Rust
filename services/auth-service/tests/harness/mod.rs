@@ -62,6 +62,12 @@ impl TestApp {
 /// Builds a fully wired app on the caller's runtime: a fresh Postgres,
 /// migrated, behind a real server.
 pub async fn start() -> TestApp {
+    start_with_bootstrapped_admins("").await
+}
+
+/// As [`start`], but grants the `admin` role to anyone registering with one of
+/// the listed addresses. Used to test the bootstrap path itself.
+pub async fn start_with_bootstrapped_admins(admin_emails: &str) -> TestApp {
     let _ = tracing_subscriber::fmt()
         .with_test_writer()
         .with_env_filter(tracing_subscriber::EnvFilter::new(
@@ -109,6 +115,9 @@ pub async fn start() -> TestApp {
             Config::from_source_with(&|key| match key {
                 "DATABASE_URL" => Some(url.clone()),
                 "AUTH_RATE_LIMIT_PER_MINUTE" => Some(TEST_RATE_LIMIT.to_string()),
+                // The admin tests promote their own account, so the default
+                // list is empty.
+                "ADMIN_BOOTSTRAP_EMAILS" => Some(admin_emails.to_owned()),
                 _ => None,
             })
             .expect("test configuration"),
@@ -142,6 +151,10 @@ async fn serve(app: axum::Router) -> SocketAddr {
 
 /// Serves a second router over the same state with a deliberately tight
 /// allowance, so throttling can be tested without disturbing the main app.
+///
+/// Compiled into every test binary but only exercised by the auth flow suite,
+/// hence the allow.
+#[allow(dead_code)]
 pub async fn serve_with_rate_limit(state: &AppState, limit_per_minute: u32) -> SocketAddr {
     let app = auth_service::http::router_with_rate_limit(state.clone(), limit_per_minute);
     serve(app).await

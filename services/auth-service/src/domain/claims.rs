@@ -22,6 +22,17 @@ pub struct Claims {
     pub iat: i64,
     /// Unique token id, for audit and future denylisting.
     pub jti: String,
+    /// Downstream service this token was minted for, if any.
+    ///
+    /// Optional and absent by default: a token issued for the shared audience
+    /// is not tied to one service, and so is not affected by that service
+    /// being removed from the registry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub svc: Option<String>,
+    /// The service's `token_version` at issue time. Disabling or restoring the
+    /// service bumps it, which is how tokens already in flight stop verifying.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sver: Option<i32>,
 }
 
 impl Claims {
@@ -44,6 +55,8 @@ mod tests {
             exp: 1_900_000_000,
             iat: 1_899_999_100,
             jti: Uuid::new_v4().to_string(),
+            svc: None,
+            sver: None,
         }
     }
 
@@ -52,6 +65,44 @@ mod tests {
         let claims = sample();
         let json = serde_json::to_string(&claims).unwrap();
         assert_eq!(serde_json::from_str::<Claims>(&json).unwrap(), claims);
+    }
+
+    #[test]
+    fn an_unbound_token_omits_the_service_claims_entirely() {
+        let json = serde_json::to_value(sample()).unwrap();
+        assert!(json.get("svc").is_none(), "got: {json}");
+        assert!(json.get("sver").is_none(), "got: {json}");
+    }
+
+    #[test]
+    fn a_bound_token_carries_its_service_and_version() {
+        let mut claims = sample();
+        claims.svc = Some("billing-api".into());
+        claims.sver = Some(4);
+
+        let json = serde_json::to_value(&claims).unwrap();
+        assert_eq!(json["svc"], "billing-api");
+        assert_eq!(json["sver"], 4);
+        assert_eq!(serde_json::from_value::<Claims>(json).unwrap(), claims);
+    }
+
+    /// A token issued before these fields existed must still decode, otherwise
+    /// adding them would invalidate every outstanding token on deploy.
+    #[test]
+    fn a_token_without_the_service_claims_still_decodes() {
+        let legacy = serde_json::json!({
+            "sub": "8f14e45f-ea5f-4b2c-9a3d-1c2b3a4d5e6f",
+            "roles": ["user"],
+            "ver": 0,
+            "iss": "auth-service",
+            "aud": "auth-service-clients",
+            "exp": 1_900_000_000,
+            "iat": 1_899_999_100,
+            "jti": "abc"
+        });
+        let claims: Claims = serde_json::from_value(legacy).unwrap();
+        assert_eq!(claims.svc, None);
+        assert_eq!(claims.sver, None);
     }
 
     #[test]

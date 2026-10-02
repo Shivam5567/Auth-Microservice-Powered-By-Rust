@@ -3,6 +3,7 @@ pub mod claims;
 pub mod keys;
 pub mod password;
 pub mod refresh_token;
+pub mod service;
 
 /// Canonical form of an email address for storage and lookup.
 ///

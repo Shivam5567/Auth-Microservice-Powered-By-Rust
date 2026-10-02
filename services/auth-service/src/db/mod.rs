@@ -1,4 +1,5 @@
 pub mod refresh_token;
+pub mod service;
 pub mod user;
 
 use sqlx::PgPool;

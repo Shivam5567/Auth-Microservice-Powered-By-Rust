@@ -62,6 +62,31 @@ impl FromRequestParts<AppState> for AuthUser {
             return Err(AppError::unauthorized("token has been revoked"));
         }
 
+        // A token minted for a downstream service is only good while that
+        // service is registered and active. This is what makes removing a
+        // service from the admin panel take effect immediately, rather than
+        // whenever the token happens to expire.
+        if let Some(name) = claims.svc.as_deref() {
+            let current = crate::db::service::find_by_name(
+                &state.pool,
+                &crate::domain::service::ServiceName::parse(name)
+                    .map_err(|_| AppError::unauthorized("invalid token service"))?,
+            )
+            .await?
+            .ok_or_else(|| {
+                AppError::unauthorized("the service this token was issued for is gone")
+            })?;
+
+            if current.status != crate::domain::service::Status::Active.as_str() {
+                return Err(AppError::forbidden(
+                    "the service this token was issued for is disabled",
+                ));
+            }
+            if Some(current.token_version) != claims.sver {
+                return Err(AppError::unauthorized("token has been revoked"));
+            }
+        }
+
         Ok(Self {
             id,
             roles: claims.roles,

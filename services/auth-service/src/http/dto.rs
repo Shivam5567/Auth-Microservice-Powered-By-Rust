@@ -26,6 +26,10 @@ pub struct LoginRequest {
     pub email: String,
     #[validate(length(min = 1, max = MAX_PASSWORD_LEN, message = "is required"))]
     pub password: String,
+    /// Downstream service this session is for. When set, the returned tokens are
+    /// bound to it and stop working if it is removed from the registry.
+    #[serde(default)]
+    pub service: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -144,8 +148,21 @@ mod tests {
         let req = LoginRequest {
             email: "alice@example.com".into(),
             password: String::new(),
+            service: None,
         };
         assert!(req.validate().is_err());
+    }
+
+    #[test]
+    fn the_service_field_is_optional() {
+        let req: LoginRequest =
+            serde_json::from_str(r#"{"email":"a@b.com","password":"x"}"#).unwrap();
+        assert!(req.service.is_none());
+
+        let bound: LoginRequest =
+            serde_json::from_str(r#"{"email":"a@b.com","password":"x","service":"billing"}"#)
+                .unwrap();
+        assert_eq!(bound.service.as_deref(), Some("billing"));
     }
 
     #[test]

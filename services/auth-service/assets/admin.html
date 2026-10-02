@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auth service - downstream services</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1115;
+    --panel: #171a21;
+    --line: #262b36;
+    --text: #e6e9ef;
+    --muted: #98a2b3;
+    --accent: #4f8cff;
+    --ok: #34d399;
+    --off: #f59e0b;
+    --danger: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    justify-content: space-between;
+  }
+  h1 { font-size: 18px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  main { padding: 24px; max-width: 1100px; margin: 0 auto; }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .grow { flex: 1 1 180px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input, textarea, select, button {
+    font: inherit;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    padding: 9px 11px;
+    background: #0d1016;
+    color: var(--text);
+    width: 100%;
+  }
+  textarea { resize: vertical; min-height: 64px; }
+  button {
+    width: auto;
+    cursor: pointer;
+    background: #222836;
+    border-color: #333b4d;
+    font-weight: 500;
+  }
+  button:hover:not(:disabled) { border-color: #46506a; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--danger); }
+  button.small { padding: 5px 10px; font-size: 13px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); font-weight: 500; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .pill { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid; }
+  .pill.active { color: var(--ok); border-color: var(--ok); }
+  .pill.disabled { color: var(--off); border-color: var(--off); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .counts { display: flex; gap: 18px; }
+  .counts b { font-size: 20px; display: block; }
+  #notice { padding: 10px 12px; border-radius: 7px; margin-bottom: 14px; display: none; }
+  #notice.err { display: block; background: #2a1517; border: 1px solid var(--danger); color: #fecaca; }
+  #notice.ok { display: block; background: #10241c; border: 1px solid var(--ok); color: #bbf7d0; }
+</style>
+</head>
+<body data-panel="admin-services">
+<header>
+  <h1>Auth service &middot; downstream services</h1>
+  <div class="row">
+    <div class="grow" style="max-width:340px">
+      <label for="token">Admin access token (needs the <code>admin</code> role)</label>
+      <input id="token" type="password" placeholder="paste a Bearer token" autocomplete="off" spellcheck="false">
+    </div>
+    <button id="save-token" class="primary">Use token</button>
+    <button id="forget-token">Clear</button>
+  </div>
+</header>
+
+<main>
+  <div id="notice"></div>
+
+  <section>
+    <h2>Overview</h2>
+    <div class="counts">
+      <div><b id="c-total">&ndash;</b><span class="muted">Total</span></div>
+      <div><b id="c-active">&ndash;</b><span class="muted">Active</span></div>
+      <div><b id="c-disabled">&ndash;</b><span class="muted">Removed</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Register a service</h2>
+    <form id="create-form">
+      <div class="row">
+        <div class="grow">
+          <label for="name">Name</label>
+          <input id="name" required maxlength="64" placeholder="billing-api">
+        </div>
+        <div class="grow" style="flex:2 1 260px">
+          <label for="description">Description</label>
+          <input id="description" maxlength="500" placeholder="what this service does">
+        </div>
+        <div class="grow" style="flex:2 1 220px">
+          <label for="scopes">Scopes (comma separated)</label>
+          <input id="scopes" placeholder="orders:read, orders:write">
+        </div>
+        <button class="primary" type="submit" style="align-self:flex-end">Add service</button>
+      </div>
+      <p class="muted" style="margin:10px 0 0">
+        Names are normalised to a lowercase slug, so <code>Billing API</code> becomes
+        <code>billing-api</code>.
+      </p>
+    </form>
+  </section>
+
+  <section>
+    <h2>Services</h2>
+    <div class="row" style="margin-bottom:14px">
+      <select id="filter" style="width:auto">
+        <option value="">All</option>
+        <option value="active">Active only</option>
+        <option value="disabled">Removed only</option>
+      </select>
+      <input id="search" class="grow" placeholder="search name or description">
+      <button id="refresh">Reload</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Service</th><th>Status</th><th>Scopes</th><th>Ver</th><th>Created</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="muted" id="empty" style="display:none">No services registered yet.</p>
+  </section>
+
+  <section>
+    <h2>Recent admin activity</h2>
+    <table>
+      <thead><tr><th>When</th><th>Service</th><th>Action</th><th>Actor</th><th>Detail</th></tr></thead>
+      <tbody id="events"></tbody>
+    </table>
+    <p class="muted" id="no-events" style="display:none">Nothing recorded yet.</p>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var BASE = "/api/v1/admin/services";
+  var $ = function (id) { return document.getElementById(id); };
+
+  function token() { return $("token").value.trim(); }
+
+  function notice(kind, text) {
+    var el = $("notice");
+    el.className = kind;
+    el.textContent = text;
+  }
+  function clearNotice() { $("notice").className = ""; $("notice").textContent = ""; }
+
+  function when(iso) {
+    if (!iso) return "-";
+    var d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleString();
+  }
+
+  // The token lives in sessionStorage so a page reload does not lose it,
+  // but it does not survive closing the tab.
+  try {
+    $("token").value = sessionStorage.getItem("auth-admin-token") || "";
+  } catch (e) { /* storage disabled; token stays in memory only */ }
+
+  $("save-token").addEventListener("click", function () {
+    try { sessionStorage.setItem("auth-admin-token", token()); } catch (e) {}
+    notice("ok", "Token saved. Loading services.");
+    load();
+  });
+
+  $("forget-token").addEventListener("click", function () {
+    $("token").value = "";
+    try { sessionStorage.removeItem("auth-admin-token"); } catch (e) {}
+    clearNotice();
+    $("rows").innerHTML = "";
+    $("events").innerHTML = "";
+  });
+
+  function authHeaders() {
+    var h = { "content-type": "application/json" };
+    if (token()) h["authorization"] = "Bearer " + token();
+    return h;
+  }
+
+  function handle(resp) {
+    return resp.text().then(function (text) {
+      var body = null;
+      try { body = text ? JSON.parse(text) : null; } catch (e) {}
+      if (!resp.ok) {
+        var msg = body && body.error && body.error.message
+          ? body.error.message
+          : ("request failed with status " + resp.status);
+        var err = new Error(msg);
+        err.status = resp.status;
+        throw err;
+      }
+      return body;
+    });
+  }
+
+  function authHint(err) {
+    return err.status === 401 || err.status === 403
+      ? " (this needs a token carrying the admin role)"
+      : "";
+  }
+
+  function loadSummary() {
+    return fetch(BASE + "/summary", { headers: authHeaders() })
+      .then(handle)
+      .then(function (s) {
+        $("c-total").textContent = s.total;
+        $("c-active").textContent = s.active;
+        $("c-disabled").textContent = s.disabled;
+      });
+  }
+
+  function load() {
+    if (!token()) { notice("err", "Paste an admin access token to continue."); return Promise.resolve(); }
+    clearNotice();
+
+    var params = new URLSearchParams();
+    if ($("filter").value) params.set("status", $("filter").value);
+    if ($("search").value.trim()) params.set("search", $("search").value.trim());
+
+    return fetch(BASE + "?" + params.toString(), { headers: authHeaders() })
+      .then(handle)
+      .then(function (data) {
+        var rows = data.services.map(function (s) {
+          var isActive = s.status === "active";
+          var action = isActive
+            ? '<button class="small danger" data-remove="' + s.name + '">Remove</button>'
+            : '<button class="small" data-restore="' + s.name + '">Restore</button>';
+          return "<tr>" +
+            "<td><code>" + s.name + "</code>" +
+              (s.description ? '<div class="muted">' + escapeHtml(s.description) + "</div>" : "") +
+            "</td>" +
+            '<td><span class="pill ' + s.status + '">' + s.status + "</span></td>" +
+            "<td>" + (s.scopes.length ? s.scopes.map(function (c) { return "<code>" + escapeHtml(c) + "</code>"; }).join(" ") : '<span class="muted">none</span>') + "</td>" +
+            "<td>" + s.token_version + "</td>" +
+            "<td class='muted'>" + when(s.created_at) + "</td>" +
+            "<td>" + action + "</td>" +
+          "</tr>";
+        }).join("");
+
+        $("rows").innerHTML = rows;
+        $("empty").style.display = data.services.length ? "none" : "block";
+      })
+      .then(loadSummary)
+      .then(loadEvents)
+      .catch(function (err) { notice("err", err.message + authHint(err)); });
+  }
+
+  function loadEvents() {
+    return fetch(BASE + "/events?limit=15", { headers: authHeaders() })
+      .then(handle)
+      .then(function (events) {
+        $("events").innerHTML = events.map(function (e) {
+          return "<tr>" +
+            '<td class="muted">' + when(e.at) + "</td>" +
+            "<td><code>" + escapeHtml(e.service) + "</code></td>" +
+            "<td>" + escapeHtml(e.action) + "</td>" +
+            '<td class="muted">' + escapeHtml(e.actor || "-") + "</td>" +
+            '<td class="muted">' + escapeHtml(e.detail || "") + "</td>" +
+          "</tr>";
+        }).join("");
+        $("no-events").style.display = events.length ? "none" : "block";
+      });
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  $("create-form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var scopes = $("scopes").value.split(",")
+      .map(function (s) { return s.trim(); })
+      .filter(function (s) { return s.length; });
+
+    fetch(BASE, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        name: $("name").value.trim(),
+        description: $("description").value.trim(),
+        scopes: scopes
+      })
+    })
+      .then(handle)
+      .then(function (created) {
+        notice("ok", "Registered " + created.name + ".");
+        $("create-form").reset();
+        load();
+      })
+      .catch(function (err) { notice("err", err.message + authHint(err)); });
+  });
+
+  $("rows").addEventListener("click", function (ev) {
+    var btn = ev.target;
+    var name, request, verb;
+
+    if (btn.dataset.remove) {
+      name = btn.dataset.remove;
+      verb = "removed";
+      if (!confirm("Remove " + name + "?\n\nAccess tokens already issued for it stop working immediately. The entry is kept so you can restore it.")) return;
+      request = { method: "DELETE", url: BASE + "/" + encodeURIComponent(name) };
+    } else if (btn.dataset.restore) {
+      name = btn.dataset.restore;
+      verb = "restored";
+      request = { method: "POST", url: BASE + "/" + encodeURIComponent(name) + "/restore" };
+    } else {
+      return;
+    }
+
+    btn.disabled = true;
+    fetch(request.url, { method: request.method, headers: authHeaders() })
+      .then(handle)
+      .then(function () {
+        notice("ok", name + " " + verb + ".");
+        load();
+      })
+      .catch(function (err) { notice("err", err.message + authHint(err)); btn.disabled = false; });
+  });
+
+  $("refresh").addEventListener("click", load);
+  $("filter").addEventListener("change", load);
+  $("search").addEventListener("keydown", function (ev) { if (ev.key === "Enter") load(); });
+
+  if (token()) load();
+})();
+</script>
+</body>
+</html>

@@ -13,6 +13,7 @@ use tower_http::trace::TraceLayer;
 
 use super::handlers;
 use super::middleware::{self, RateLimiter};
+use super::{admin, static_assets};
 use crate::error::AppError;
 use crate::state::AppState;
 
@@ -44,10 +45,21 @@ pub fn router_with_rate_limit(state: AppState, limit_per_minute: u32) -> Router 
             middleware::rate_limit,
         ));
 
+    let admin_routes = Router::new()
+        .route("/services", get(admin::list).post(admin::create))
+        .route("/services/summary", get(admin::summary))
+        .route("/services/events", get(admin::events))
+        .route("/services/{name}", get(admin::get).patch(admin::update))
+        .route("/services/{name}/restore", post(admin::restore))
+        .route("/services/{name}", axum::routing::delete(admin::remove));
+
     let mut app = Router::new()
         .route("/health", get(handlers::health))
         .route("/health/ready", get(handlers::ready))
+        .route("/admin", get(static_assets::root))
+        .route("/admin/", get(static_assets::panel))
         .nest("/api/v1/auth", auth_routes)
+        .nest("/api/v1/admin", admin_routes)
         .fallback(not_found)
         .layer(axum::middleware::from_fn(middleware::attach))
         .layer(TraceLayer::new_for_http())

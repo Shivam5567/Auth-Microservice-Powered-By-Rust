@@ -14,6 +14,8 @@ pub struct RefreshToken {
     pub expires_at: OffsetDateTime,
     pub used_at: Option<OffsetDateTime>,
     pub revoked_at: Option<OffsetDateTime>,
+    /// The service this session was opened for, if any.
+    pub service_name: Option<String>,
 }
 
 /// The lifecycle state of a presented refresh token, and what the caller must
@@ -31,7 +33,8 @@ pub enum Presented {
     Unknown,
 }
 
-const SELECT_COLUMNS: &str = "id, user_id, family_id, expires_at, used_at, revoked_at";
+const SELECT_COLUMNS: &str =
+    "id, user_id, family_id, expires_at, used_at, revoked_at, service_name";
 
 /// Looks a presented token up and classifies its state.
 pub async fn classify(pool: &PgPool, token: &str) -> AppResult<Presented> {
@@ -113,6 +116,7 @@ pub async fn start_family(
     ttl_secs: u64,
     user_agent: Option<&str>,
     ip_address: Option<String>,
+    service_name: Option<&str>,
 ) -> AppResult<(domain::IssuedRefreshToken, Uuid)> {
     let issued = domain::generate();
     let family_id = Uuid::new_v4();
@@ -120,8 +124,8 @@ pub async fn start_family(
 
     sqlx::query(
         "INSERT INTO refresh_tokens
-             (user_id, token_hash, family_id, expires_at, user_agent, ip_address)
-         VALUES ($1, $2, $3, $4, $5, $6::inet)",
+             (user_id, token_hash, family_id, expires_at, user_agent, ip_address, service_name)
+         VALUES ($1, $2, $3, $4, $5, $6::inet, $7)",
     )
     .bind(user_id)
     .bind(&issued.hash)
@@ -129,6 +133,7 @@ pub async fn start_family(
     .bind(expires_at)
     .bind(user_agent)
     .bind(ip_address)
+    .bind(service_name)
     .execute(pool)
     .await
     .into_app()?;
@@ -144,20 +149,22 @@ pub async fn rotate(
     family_id: Uuid,
     parent_id: Uuid,
     ttl_secs: u64,
+    service_name: Option<&str>,
 ) -> AppResult<domain::IssuedRefreshToken> {
     let issued = domain::generate();
     let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(ttl_secs as i64);
 
     sqlx::query(
         "INSERT INTO refresh_tokens
-             (user_id, token_hash, family_id, parent_id, expires_at)
-         VALUES ($1, $2, $3, $4, $5)",
+             (user_id, token_hash, family_id, parent_id, expires_at, service_name)
+         VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(user_id)
     .bind(&issued.hash)
     .bind(family_id)
     .bind(parent_id)
     .bind(expires_at)
+    .bind(service_name)
     .execute(&mut **tx)
     .await
     .into_app()?;

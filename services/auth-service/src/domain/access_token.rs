@@ -25,12 +25,23 @@ pub struct TokenMetadata<'a> {
     pub ttl: Duration,
 }
 
+/// The downstream service a token is minted for.
+///
+/// Kept as a pair so the token carries the version it was issued against; that
+/// is what lets a later removal invalidate it without a denylist.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceBinding {
+    pub name: String,
+    pub token_version: i32,
+}
+
 pub fn issue(
     keys: &SigningKeys,
     meta: TokenMetadata<'_>,
     user_id: Uuid,
     roles: Vec<String>,
     token_version: i32,
+    service: Option<&ServiceBinding>,
 ) -> Result<AccessToken, AppError> {
     let now = OffsetDateTime::now_utc();
     let ttl = meta.ttl;
@@ -44,6 +55,8 @@ pub fn issue(
         iat: now.unix_timestamp(),
         exp: (now + ttl).unix_timestamp(),
         jti: Uuid::new_v4().to_string(),
+        svc: service.map(|s| s.name.clone()),
+        sver: service.map(|s| s.token_version),
     };
 
     let mut header = Header::new(Algorithm::RS256);
@@ -124,6 +137,7 @@ mod tests {
             user,
             vec!["user".into()],
             3,
+            None,
         )
         .unwrap();
 
@@ -143,6 +157,7 @@ mod tests {
             Uuid::new_v4(),
             vec![],
             0,
+            None,
         )
         .unwrap();
         let header = jsonwebtoken::decode_header(&issued.token).unwrap();
@@ -180,6 +195,8 @@ mod tests {
             iat: (now - ago - time::Duration::seconds(900)).unix_timestamp(),
             exp: (now - ago).unix_timestamp(),
             jti: Uuid::new_v4().to_string(),
+            svc: None,
+            sver: None,
         };
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(KEYS.kid().to_owned());
@@ -194,6 +211,7 @@ mod tests {
             Uuid::new_v4(),
             vec![],
             0,
+            None,
         )
         .unwrap();
         let other = TokenMetadata {
@@ -212,6 +230,7 @@ mod tests {
             Uuid::new_v4(),
             vec![],
             0,
+            None,
         )
         .unwrap();
         let other = TokenMetadata {
@@ -230,6 +249,7 @@ mod tests {
             Uuid::new_v4(),
             vec![],
             0,
+            None,
         )
         .unwrap();
         let err = verify(&KEYS, meta(Duration::from_secs(900)), &forged.token).unwrap_err();
@@ -240,6 +260,50 @@ mod tests {
     fn garbage_input_is_rejected_without_panicking() {
         for bad in ["", "not.a.jwt", "a.b.c", "...."] {
             assert!(verify(&KEYS, meta(Duration::from_secs(900)), bad).is_err());
+        }
+    }
+
+    #[test]
+    fn a_token_for_a_service_carries_its_name_and_version() {
+        let binding = ServiceBinding {
+            name: "billing-api".into(),
+            token_version: 4,
+        };
+        let issued = issue(
+            &KEYS,
+            meta(Duration::from_secs(900)),
+            Uuid::new_v4(),
+            vec!["user".into()],
+            0,
+            Some(&binding),
+        )
+        .unwrap();
+
+        let claims = verify(&KEYS, meta(Duration::from_secs(900)), &issued.token).unwrap();
+        assert_eq!(claims.svc.as_deref(), Some("billing-api"));
+        assert_eq!(claims.sver, Some(4));
+    }
+
+    /// A version bump is what invalidates a token on removal, so the value has
+    /// to survive the round trip exactly.
+    #[test]
+    fn the_service_version_survives_the_round_trip_for_any_value() {
+        for version in [0, 1, 7, i32::MAX] {
+            let binding = ServiceBinding {
+                name: "orders".into(),
+                token_version: version,
+            };
+            let issued = issue(
+                &KEYS,
+                meta(Duration::from_secs(900)),
+                Uuid::new_v4(),
+                vec![],
+                0,
+                Some(&binding),
+            )
+            .unwrap();
+            let claims = verify(&KEYS, meta(Duration::from_secs(900)), &issued.token).unwrap();
+            assert_eq!(claims.sver, Some(version));
         }
     }
 }
