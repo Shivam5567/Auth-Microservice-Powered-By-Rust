@@ -90,6 +90,18 @@ pub async fn health() -> Json<HealthResponse> {
     })
 }
 
+/// Publishes the verification key for sibling services.
+///
+/// Deliberately unauthenticated: it is public data, and every service needs it
+/// before it can validate anything.
+pub async fn public_key(State(state): State<AppState>) -> Json<dto::PublicKeyResponse> {
+    Json(dto::PublicKeyResponse {
+        pem: state.keys.public_pem().to_owned(),
+        kid: state.keys.kid().to_owned(),
+        algorithm: "RS256",
+    })
+}
+
 /// Readiness: confirms the database answers, so an orchestrator does not route
 /// traffic to a process that cannot serve a login.
 ///

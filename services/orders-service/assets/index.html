@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Northwind &middot; storefront</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0d1016; --panel: #151922; --line: #262c38;
+    --text: #e7eaf0; --muted: #939eb2;
+    --accent: #4f8cff; --ok: #34d399; --bad: #f87171; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font:15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding:18px 24px; border-bottom:1px solid var(--line);
+    display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  h1 { font-size:18px; margin:0; }
+  main { max-width:960px; margin:0 auto; padding:24px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:20px; margin-bottom:20px; }
+  h2 { font-size:15px; margin:0 0 12px; }
+  button { font:inherit; border-radius:7px; border:1px solid var(--line);
+    padding:8px 13px; background:#222836; color:var(--text); cursor:pointer; }
+  button:hover:not(:disabled) { border-color:#48536e; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  input { font:inherit; border-radius:7px; border:1px solid var(--line);
+    padding:8px 11px; background:#0b0e14; color:var(--text); width:100%; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .grow { flex:1 1 190px; }
+  table { width:100%; border-collapse:collapse; }
+  th,td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); }
+  th { font-size:12px; color:var(--muted); font-weight:500; }
+  code { font-family:ui-monospace, Menlo, Consolas, monospace; font-size:13px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .pill { font-size:12px; padding:2px 9px; border-radius:999px; border:1px solid; }
+  .pill.active,.pill.paid { color:var(--ok); border-color:var(--ok); }
+  .pill.pending { color:var(--warn); border-color:var(--warn); }
+  .pill.refunded { color:var(--muted); border-color:var(--muted); }
+  .log { background:#0b0e14; border:1px solid var(--line); border-radius:7px;
+    padding:10px 12px; font-family:ui-monospace, Menlo, Consolas, monospace;
+    font-size:12px; max-height:240px; overflow:auto; white-space:pre-wrap; }
+  .log .ok { color:var(--ok); } .log .bad { color:var(--bad); } .log .dim { color:var(--muted); }
+  .warnbox { border:1px solid var(--warn); background:#2a2312; color:#fde68a;
+    padding:11px 13px; border-radius:7px; margin-bottom:14px; font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Northwind</h1>
+  <div class="row">
+    <span id="who" class="muted">not signed in</span>
+    <button id="signout" style="display:none">Sign out</button>
+  </div>
+</header>
+
+<main>
+
+<div class="warnbox" id="naive-warning" style="display:none">
+  <b>Naive mode is on.</b> Three orders are fired at once, each trying to refresh
+  the same session. The auth service treats the second use of a refresh token as
+  theft and revokes the whole family, so you will be signed out. That is the
+  bug single-flight refresh exists to prevent.
+</div>
+
+<section id="auth-section">
+  <h2>Sign in</h2>
+  <div class="row">
+    <div class="grow">
+      <label for="email">Email</label>
+      <input id="email" value="shopper@example.com" autocomplete="username">
+    </div>
+    <div class="grow">
+      <label for="password">Password</label>
+      <input id="password" type="password" value="correct horse battery staple" autocomplete="current-password">
+    </div>
+    <div class="grow">
+      <label for="role">Account</label>
+      <select id="role" style="width:100%">
+        <option value="shopper">shopper (create if new)</option>
+        <option value="admin">admin (needs ADMIN_BOOTSTRAP_EMAILS)</option>
+      </select>
+    </div>
+    <button id="signin" class="primary">Sign in</button>
+  </div>
+  <p class="muted" style="margin:12px 0 0">
+    The access token is held in memory here and nowhere else. The refresh token
+    is an httpOnly cookie: this page cannot read it, and it is scoped to
+    <code>/api/auth</code> so it does not travel with order requests.
+  </p>
+</section>
+
+<section>
+  <h2>Catalogue</h2>
+  <table>
+    <thead><tr><th>Item</th><th>SKU</th><th>Price</th><th></th></tr></thead>
+    <tbody id="catalog"></tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Checkout</h2>
+  <div class="row">
+    <div class="grow">
+      <label for="quantity">Quantity</label>
+      <input id="quantity" type="number" value="1" min="1">
+    </div>
+    <button id="order-one" class="primary">Place one order</button>
+    <button id="order-many">Place 3 orders at once</button>
+  </div>
+  <p class="muted" style="margin:12px 0 8px">
+    <label style="display:inline;margin-right:6px">
+      <input type="checkbox" id="naive" style="width:auto;margin-right:4px">
+      Naive client: do not single-flight refreshes
+    </label>
+  </p>
+  <div class="log" id="log"></div>
+</section>
+
+<section>
+  <h2>Your orders</h2>
+  <div class="row" style="margin-bottom:12px">
+    <button id="load-orders">Reload</button>
+    <button id="load-all">All orders (admin only)</button>
+    <button id="refund-last">Refund most recent (admin only)</button>
+  </div>
+  <table>
+    <thead><tr><th>Order</th><th>Status</th><th>Total</th><th>Placed</th><th></th></tr></thead>
+    <tbody id="orders"></tbody>
+  </table>
+</section>
+
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  // The access token lives in this closure and nowhere else. A page reload
+  // loses it, which is the point: a new one is fetched with the refresh cookie.
+  var accessToken = null;
+  var expiresAt = 0;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function log(text, kind) {
+    var el = $("log");
+    var stamp = new Date().toLocaleTimeString();
+    var span = document.createElement("div");
+    span.className = kind || "dim";
+    span.textContent = stamp + "  " + text;
+    el.appendChild(span);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  // ---------------------------------------------------------------- http
+
+  async function api(path, options) {
+    options = options || {};
+    var headers = options.headers || {};
+    if (options.body) headers["content-type"] = "application/json";
+    if (accessToken) headers["authorization"] = "Bearer " + accessToken;
+
+    var response = await fetch(path, {
+      method: options.method || "GET",
+      headers: headers,
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+
+    var text = await response.text();
+    var body = null;
+    if (text) { try { body = JSON.parse(text); } catch (e) { body = null; } }
+
+    return { status: response.status, body: body, ok: response.ok };
+  }
+
+  // ------------------------------------------------- single-flight refresh
+
+  // Only one refresh may be in flight at a time.
+  //
+  // Refresh tokens rotate: each exchange invalidates the one it replaces. If
+  // two requests refresh at the same moment, the loser looks exactly like a
+  // stolen token and the auth service revokes the whole family, signing the
+  // user out. Everything else waits on this one promise instead.
+  var inFlight = null;
+
+  function refreshOnce() {
+    if (!$("naive").checked) {
+      if (!inFlight) {
+        log("refreshing access token", "dim");
+        inFlight = fetch("/api/auth/refresh", { method: "POST" })
+          .then(function (r) {
+            if (!r.ok) throw new Error("refresh failed with " + r.status);
+            return r.json();
+          })
+          .then(function (data) {
+            accessToken = data.access_token;
+            expiresAt = Date.now() + data.expires_in * 1000;
+            inFlight = null;
+            log("access token renewed, valid for " + Math.round(data.expires_in / 60) + " min", "ok");
+            renderIdentity(data.user);
+            return data.access_token;
+          })
+          .catch(function (err) {
+            inFlight = null;
+            log("refresh failed: " + err.message + " &mdash; session ended", "bad");
+            accessToken = null;
+            renderIdentity(null);
+            throw err;
+          });
+      }
+      return inFlight;
+    }
+
+    // Naive path: every caller refreshes for itself, which is the bug.
+    log("refreshing (naive, no single-flight)", "dim");
+    return fetch("/api/auth/refresh", { method: "POST" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("status " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        accessToken = data.access_token;
+        expiresAt = Date.now() + data.expires_in * 1000;
+        log("refreshed", "ok");
+        return data.access_token;
+      })
+      .catch(function (err) {
+        log("refresh failed: " + err.message, "bad");
+        accessToken = null;
+        renderIdentity(null);
+        throw err;
+      });
+  }
+
+  // Runs a call, and on 401 refreshes once and tries again.
+  async function call(path, options) {
+    var first = await api(path, options);
+    if (first.status !== 401) return first;
+
+    log("got 401, refreshing", "dim");
+    try {
+      await refreshOnce();
+    } catch (e) {
+      return { status: 401, body: null, ok: false };
+    }
+    return api(path, options);
+  }
+
+  // ----------------------------------------------------------------- ui
+
+  function renderIdentity(user) {
+    var who = $("who");
+    if (user && user.id) {
+      who.innerHTML = '<code>' + user.id + "</code> &middot; roles: " +
+        ((user.roles || []).join(", ") || "none");
+      $("signout").style.display = "";
+      $("auth-section").style.display = "none";
+    } else {
+      who.textContent = "not signed in";
+      $("signout").style.display = "none";
+      $("auth-section").style.display = "";
+    }
+  }
+
+  function money(cents) {
+    return (cents / 100).toFixed(2);
+  }
+
+  async function loadCatalog() {
+    var res = await api("/api/catalog");
+    $("catalog").innerHTML = res.body.map(function (p) {
+      return "<tr><td>" + p.name + "</td><td><code>" + p.sku + "</code></td>" +
+        "<td>$" + p.price + "</td>" +
+        '<td><button data-sku="' + p.sku + '">Add</button></td></tr>';
+    }).join("");
+  }
+
+  async function placeOrder(sku) {
+    var quantity = parseInt($("quantity").value, 10) || 1;
+    var res = await call("/api/orders", {
+      method: "POST",
+      body: { items: [{ sku: sku, quantity: quantity }] }
+    });
+
+    if (res.ok) {
+      log("order " + res.body.id.slice(0, 8) + " placed, $" + res.body.total, "ok");
+      loadOrders();
+    } else {
+      log("order failed (" + res.status + "): " +
+        (res.body && res.body.error ? res.body.error.message : "unknown"), "bad");
+    }
+  }
+
+  async function placeMany() {
+    var sku = $("catalog").querySelector("button");
+    if (!sku) return;
+    var first = sku.dataset.sku;
+
+    // Deliberately concurrent. With single-flight this is safe; without it,
+    // the losing refreshes burn the session.
+    log("firing 3 orders at once", "dim");
+    await Promise.all([placeOrder(first), placeOrder(first), placeOrder(first)]);
+  }
+
+  async function loadOrders(all) {
+    var res = await call("/api/orders" + (all ? "?all=true" : ""));
+    if (!res.ok) {
+      $("orders").innerHTML = "";
+      log("could not load orders (" + res.status + ")", "bad");
+      return;
+    }
+
+    if (!res.body.length) {
+      $("orders").innerHTML = '<tr><td colspan="5" class="muted">No orders yet.</td></tr>';
+      return;
+    }
+
+    $("orders").innerHTML = res.body.map(function (o) {
+      return "<tr>" +
+        "<td><code>" + o.id.slice(0, 8) + "</code></td>" +
+        '<td><span class="pill ' + o.status + '">' + o.status + "</span></td>" +
+        "<td>$" + o.total + "</td>" +
+        '<td class="muted">' + new Date(o.created_at).toLocaleString() + "</td>" +
+        '<td><button data-order="' + o.id + '">Refund</button></td>' +
+      "</tr>";
+    }).join("");
+  }
+
+  // ------------------------------------------------------------- events
+
+  $("signin").addEventListener("click", async function () {
+    var btn = this;
+    btn.disabled = true;
+    try {
+      var res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: $("email").value.trim(),
+          password: $("password").value,
+          register: true,
+          bind_to_service: true
+        })
+      });
+      var body = await res.json();
+      if (!res.ok) {
+        log("sign in failed: " + (body.error ? body.error.message : res.status), "bad");
+        return;
+      }
+      accessToken = body.access_token;
+      expiresAt = Date.now() + body.expires_in * 1000;
+      log("signed in, access token valid for " + Math.round(body.expires_in / 60) + " min", "ok");
+      log("this service checks tokens by: " + body.token_check, "dim");
+      renderIdentity(body.user);
+      loadOrders(false);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("signout").addEventListener("click", async function () {
+    await fetch("/api/auth/logout", { method: "POST" });
+    accessToken = null;
+    log("signed out", "dim");
+    renderIdentity(null);
+  });
+
+  $("order-one").addEventListener("click", function () {
+    var btn = $("catalog").querySelector("button");
+    if (btn) placeOrder(btn.dataset.sku);
+  });
+
+  $("order-many").addEventListener("click", placeMany);
+
+  $("load-orders").addEventListener("click", function () { loadOrders(false); });
+  $("load-all").addEventListener("click", function () { loadOrders(true); });
+
+  $("refund-last").addEventListener("click", async function () {
+    var btn = $("orders").querySelector("button[data-order]");
+    if (!btn) { log("no order to refund", "dim"); return; }
+    var res = await call("/api/orders/" + btn.dataset.order + "/refund", { method: "POST" });
+    if (res.ok) {
+      log("refunded " + res.body.id.slice(0, 8), "ok");
+      loadOrders(false);
+    } else {
+      log("refund refused (" + res.status + "): " +
+        (res.body && res.body.error ? res.body.error.message : "unknown"), "bad");
+    }
+  });
+
+  $("catalog").addEventListener("click", function (ev) {
+    if (ev.target.dataset.sku) placeOrder(ev.target.dataset.sku);
+  });
+
+  $("orders").addEventListener("click", function (ev) {
+    var id = ev.target.dataset.order;
+    if (!id) return;
+    call("/api/orders/" + id + "/refund", { method: "POST" }).then(function (res) {
+      log(res.ok ? "refunded " + id.slice(0, 8)
+                 : "refund refused (" + res.status + ")",
+          res.ok ? "ok" : "bad");
+      loadOrders(false);
+    });
+  });
+
+  $("naive").addEventListener("change", function () {
+    $("naive-warning").style.display = this.checked ? "" : "none";
+  });
+
+  loadCatalog();
+  renderIdentity(null);
+  log("ready. sign in, then place three orders at once.", "dim");
+  log("toggle &quot;naive client&quot; to see what rotation punishes.", "dim");
+})();
+</script>
+</body>
+</html>

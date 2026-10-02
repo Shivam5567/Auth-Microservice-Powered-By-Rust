@@ -103,6 +103,20 @@ pub struct HealthResponse {
     pub checked_at: Option<time::OffsetDateTime>,
 }
 
+/// The signing public key, for other services that verify tokens locally.
+///
+/// This is the whole point of signing with RS256 rather than a shared secret:
+/// other services get this and can check a token without ever being able to
+/// mint one, and without a network call back to the auth service.
+#[derive(Debug, Serialize)]
+pub struct PublicKeyResponse {
+    /// SPKI PEM, exactly as `jsonwebtoken` wants it.
+    pub pem: String,
+    /// Digest of the key, matching the `kid` in issued token headers.
+    pub kid: String,
+    pub algorithm: &'static str,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

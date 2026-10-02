@@ -159,6 +159,19 @@ async fn listing_can_be_filtered_and_searched() {
     let app = app().await;
     let token = admin_token(&app).await;
 
+    // Relative, not absolute: the registry is seeded with the first-party
+    // services, so the total depends on migrations rather than on this test.
+    let before = client()
+        .get(app.url("/api/v1/admin/services"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("list before")
+        .json::<Value>()
+        .await
+        .expect("body before");
+    let starting_total = before["total"].as_i64().expect("total");
+
     for name in ["search-alpha", "search-beta", "other-gamma"] {
         let created = client()
             .post(app.url("/api/v1/admin/services"))
@@ -190,7 +203,12 @@ async fn listing_can_be_filtered_and_searched() {
         .json()
         .await
         .expect("list body");
-    assert_eq!(all["total"], 3);
+    assert_eq!(
+        all["total"].as_i64().unwrap(),
+        starting_total + 3,
+        "three services were just registered"
+    );
+
     // Sorted by name, which is what the panel relies on for a stable view.
     let names: Vec<&str> = all["services"]
         .as_array()

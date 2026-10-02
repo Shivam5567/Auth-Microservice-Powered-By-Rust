@@ -4,16 +4,20 @@ FROM rust:1-bookworm AS builder
 WORKDIR /build
 
 # Dependencies are copied first so the layer is reused whenever only our own
-# source changes.
+# source changes. Every workspace member needs a stub target, even when building
+# just one of them, or cargo cannot load the workspace at all.
 COPY Cargo.toml Cargo.lock ./
 COPY crates/common/Cargo.toml crates/common/
 COPY services/auth-service/Cargo.toml services/auth-service/
-RUN mkdir -p crates/common/src services/auth-service/src \
+COPY services/orders-service/Cargo.toml services/orders-service/
+RUN mkdir -p crates/common/src services/auth-service/src services/orders-service/src \
     && echo "" > crates/common/src/lib.rs \
     && echo "fn main() {}" > services/auth-service/src/main.rs \
     && echo "" > services/auth-service/src/lib.rs \
+    && echo "fn main() {}" > services/orders-service/src/main.rs \
+    && echo "" > services/orders-service/src/lib.rs \
     && cargo build --release --locked -p auth-service \
-    && rm -rf crates/common/src services/auth-service/src
+    && rm -rf crates/common/src services/auth-service/src services/orders-service/src
 
 COPY crates crates
 COPY services services
@@ -24,6 +28,8 @@ COPY services/auth-service/migrations services/auth-service/migrations
 RUN touch crates/common/src/lib.rs \
         services/auth-service/src/lib.rs \
         services/auth-service/src/main.rs \
+        services/orders-service/src/lib.rs \
+        services/orders-service/src/main.rs \
     && cargo build --release --locked -p auth-service
 
 # Runtime stage: no compiler, no source.

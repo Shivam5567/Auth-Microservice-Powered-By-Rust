@@ -56,6 +56,7 @@ pub fn router_with_rate_limit(state: AppState, limit_per_minute: u32) -> Router 
     let mut app = Router::new()
         .route("/health", get(handlers::health))
         .route("/health/ready", get(handlers::ready))
+        .route("/public-key", get(handlers::public_key))
         .route("/admin", get(static_assets::root))
         .route("/admin/", get(static_assets::panel))
         .nest("/api/v1/auth", auth_routes)

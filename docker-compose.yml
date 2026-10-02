@@ -19,6 +19,8 @@ services:
       - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Runs once on first start, to create the orders database.
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       # The service must not start migrating before Postgres accepts queries.
       test: ["CMD-SHELL", "pg_isready -U auth -d auth"]
@@ -58,6 +60,35 @@ services:
       - "${AUTH_PORT:-8080}:8080"
     volumes:
       - auth-keys:/app/keys
+
+  orders-service:
+    build:
+      context: .
+      dockerfile: services/orders-service/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://auth:auth@postgres:5432/orders
+      BIND_ADDR: 0.0.0.0:8080
+      # On the compose network, so this is the service name rather than localhost.
+      AUTH_BASE_URL: http://auth-service:8080
+      AUTH_ISSUER: auth-service
+      AUTH_AUDIENCE: auth-service-clients
+      # `local` verifies the RS256 signature with the auth service's public key.
+      # `introspect` calls the auth service on every request, which also honours
+      # revocations. See the README for the trade-off.
+      TOKEN_CHECK: "${TOKEN_CHECK:-local}"
+      REFRESH_COOKIE_TTL_SECONDS: "2592000"
+      RUST_LOG: orders_service=info,tower_http=info
+      # The demo is served over plain HTTP, where a Secure cookie would be
+      # dropped by some browsers.
+      COOKIE_SECURE: "false"
+    ports:
+      - "${ORDERS_PORT:-8082}:8080"
 
 volumes:
   postgres-data:
