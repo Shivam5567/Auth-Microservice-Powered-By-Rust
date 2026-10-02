@@ -73,6 +73,13 @@ docker compose up --build
 curl localhost:8080/health
 ```
 
+`POSTGRES_PORT` and `AUTH_PORT` in `.env` control the host-side ports only; the
+service always listens on 8080 inside its container. They default to 5433 and
+8080 to avoid colliding with a Postgres you may already run locally.
+
+Tear down with `docker compose down`, or add `-v` to discard the database and
+the stored signing keys.
+
 Without Docker, point `DATABASE_URL` at a Postgres you already have and:
 
 ```sh
@@ -107,11 +114,13 @@ state machine, the rate limiter, and config parsing. The integration suite in
 in a container, including the token-theft case, and asserts that neither the
 password nor the refresh token is ever stored in the clear.
 
-The integration tests need a running Docker daemon. They start one Postgres
-container and share it across the suite; everything else is per-test.
+The integration tests need a running Docker daemon. Each test starts its own
+Postgres container and drops it again, so containers are not left behind;
+they are slow, so run them with a few threads:
 
 ```sh
-cargo test --workspace -- --test-threads=4   # faster, needs the extra memory
+cargo test --workspace -- --test-threads=4
+```
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```

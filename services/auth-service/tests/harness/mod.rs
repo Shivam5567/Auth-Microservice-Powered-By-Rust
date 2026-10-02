@@ -1,11 +1,13 @@
 //! Test harness.
 //!
-//! The Postgres container and the RSA keypair are created once and shared, but
-//! the connection pool and the HTTP server are built per test. That indirection
-//! is deliberate: every `#[tokio::test]` gets its own runtime, so anything
-//! holding a pool or a bound socket has to live inside the test that created
-//! it. Only plain data - the connection string and a key directory path - can
-//! safely be shared through a `OnceLock`.
+//! Everything a test touches - the Postgres container, the pool and the HTTP
+//! server - is built inside that test and dropped with it. Nothing lives in a
+//! `static`, because statics are never dropped: a shared `ContainerAsync` held
+//! there would leave a container running after the test binary exits, and they
+//! would pile up one per run.
+//!
+//! The only thing shared is the signing keypair, via a directory on disk, since
+//! regenerating a 2048-bit key for every test is needlessly slow.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -32,42 +34,6 @@ const POSTGRES_TAG: &str = "17-alpine";
 /// itself is covered by `serve_with_rate_limit`.
 const TEST_RATE_LIMIT: u32 = 100_000;
 
-/// Connection string of the shared container.
-///
-/// Async because starting the container is, and backed by a `OnceCell` so the
-/// container comes up exactly once no matter how many tests run in parallel.
-async fn database_url() -> &'static str {
-    static URL: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
-    URL.get_or_init(|| async {
-        let _ = tracing_subscriber::fmt()
-            .with_test_writer()
-            .with_env_filter(tracing_subscriber::EnvFilter::new(
-                "auth_service=debug,common=debug,warn",
-            ))
-            .try_init();
-
-        let container = Postgres::default()
-            .with_tag(POSTGRES_TAG)
-            .start()
-            .await
-            .expect("Docker must be running to execute the integration tests");
-
-        let host = container.get_host().await.expect("container host address");
-        let port = container
-            .get_host_port_ipv4(5432)
-            .await
-            .expect("postgres port");
-
-        // Leaked so the container is never dropped, and therefore never
-        // stopped, for the lifetime of the test binary.
-        let _keep_alive: &'static ContainerAsync<Postgres> = Box::leak(Box::new(container));
-
-        format!("postgres://postgres:postgres@{host}:{port}/postgres")
-    })
-    .await
-    .as_str()
-}
-
 /// Directory holding the signing keypair, generated once for the whole run.
 fn key_dir() -> &'static PathBuf {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -82,6 +48,9 @@ fn key_dir() -> &'static PathBuf {
 pub struct TestApp {
     pub address: SocketAddr,
     pub state: AppState,
+    /// Held only so the container outlives the pool; dropping this stops it,
+    /// which is what keeps repeated runs from accumulating containers.
+    _container: ContainerAsync<Postgres>,
 }
 
 impl TestApp {
@@ -90,11 +59,30 @@ impl TestApp {
     }
 }
 
-/// Builds a fully wired app on the caller's runtime, backed by the shared
-/// container.
+/// Builds a fully wired app on the caller's runtime: a fresh Postgres,
+/// migrated, behind a real server.
 pub async fn start() -> TestApp {
-    let url = database_url().await;
-    let pool = db::connect(url, 5).await.expect("connect to postgres");
+    let _ = tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_env_filter(tracing_subscriber::EnvFilter::new(
+            "auth_service=debug,common=debug,warn",
+        ))
+        .try_init();
+
+    let container = Postgres::default()
+        .with_tag(POSTGRES_TAG)
+        .start()
+        .await
+        .expect("Docker must be running to execute the integration tests");
+
+    let host = container.get_host().await.expect("container host address");
+    let port = container
+        .get_host_port_ipv4(5432)
+        .await
+        .expect("postgres port");
+    let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
+
+    let pool = db::connect(&url, 5).await.expect("connect to postgres");
 
     // Run the migrator directly so a failure reports its real cause rather
     // than the generic message `db::migrate` logs.
@@ -119,7 +107,7 @@ pub async fn start() -> TestApp {
         },
         config: Arc::new(
             Config::from_source_with(&|key| match key {
-                "DATABASE_URL" => Some(url.to_owned()),
+                "DATABASE_URL" => Some(url.clone()),
                 "AUTH_RATE_LIMIT_PER_MINUTE" => Some(TEST_RATE_LIMIT.to_string()),
                 _ => None,
             })
@@ -131,7 +119,11 @@ pub async fn start() -> TestApp {
 
     let address = serve(router(state.clone())).await;
 
-    TestApp { address, state }
+    TestApp {
+        address,
+        state,
+        _container: container,
+    }
 }
 
 async fn serve(app: axum::Router) -> SocketAddr {

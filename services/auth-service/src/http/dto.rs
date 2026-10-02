@@ -48,6 +48,9 @@ pub struct UserResponse {
     pub id: uuid::Uuid,
     pub email: String,
     pub roles: Vec<String>,
+    /// RFC 3339 rather than the crate's default tuple form, which would put a
+    /// raw `[seconds, nanoseconds, ..]` array in the response body.
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: time::OffsetDateTime,
 }
 
@@ -89,7 +92,10 @@ pub struct HealthResponse {
     pub service: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub database: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "time::serde::rfc3339::option"
+    )]
     pub checked_at: Option<time::OffsetDateTime>,
 }
 
@@ -166,5 +172,19 @@ mod tests {
         .unwrap();
         assert_eq!(json["status"], "ok");
         assert!(json.get("database").is_none());
+    }
+
+    #[test]
+    fn timestamps_are_rendered_as_rfc3339_not_a_tuple() {
+        let json = serde_json::to_value(HealthResponse {
+            status: "ok",
+            service: "auth-service",
+            database: Some("connected"),
+            checked_at: Some(time::OffsetDateTime::UNIX_EPOCH),
+        })
+        .unwrap();
+
+        let rendered = json["checked_at"].as_str().expect("a string timestamp");
+        assert_eq!(rendered, "1970-01-01T00:00:00Z");
     }
 }

@@ -30,7 +30,12 @@ sqlx = { version = "0.8.6", default-features = false, features = [
   "macros",
 ] }
 thiserror = "2.0.21"
-time = { version = "0.3.55", features = ["serde", "parsing", "formatting"] }
+time = { version = "0.3.55", features = [
+  "serde",
+  "serde-well-known",
+  "parsing",
+  "formatting",
+] }
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal", "net"] }
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.1", features = [

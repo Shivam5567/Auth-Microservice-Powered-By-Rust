@@ -19,7 +19,11 @@ COPY crates crates
 COPY services services
 # `sqlx::migrate!` embeds ./migrations at compile time, so it must be present.
 COPY services/auth-service/migrations services/auth-service/migrations
-RUN touch services/auth-service/src/lib.rs services/auth-service/src/main.rs \
+# The stub sources from the cache step have older timestamps than the real ones
+# restored above, so every crate has to be nudged or cargo treats it as fresh.
+RUN touch crates/common/src/lib.rs \
+        services/auth-service/src/lib.rs \
+        services/auth-service/src/main.rs \
     && cargo build --release --locked -p auth-service
 
 # Runtime stage: no compiler, no source.
