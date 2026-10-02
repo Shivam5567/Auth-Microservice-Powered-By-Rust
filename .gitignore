@@ -1,0 +1,22 @@
+# Rust build artifacts
+/target
+**/*.rs.bk
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+/keys
+**/keys/*.pem
+
+# Local data
+*.db
+*.sqlite*
+/data
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
