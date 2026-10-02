@@ -90,7 +90,11 @@ async fn an_email_is_case_insensitive_for_registration() {
         .await
         .expect("uppercase register request");
 
-    assert_eq!(response.status(), 409, "same address must not register twice");
+    assert_eq!(
+        response.status(),
+        409,
+        "same address must not register twice"
+    );
 }
 
 #[tokio::test]
@@ -251,7 +255,11 @@ async fn replaying_a_spent_token_burns_the_whole_family() {
         .send()
         .await
         .expect("post-revocation refresh");
-    assert_eq!(after.status(), 401, "family should be revoked after a replay");
+    assert_eq!(
+        after.status(),
+        401,
+        "family should be revoked after a replay"
+    );
 }
 
 #[tokio::test]
@@ -438,7 +446,12 @@ async fn a_throttled_response_uses_the_shared_error_envelope() {
     let first = client().post(&url).json(&body).send().await.expect("first");
     assert_eq!(first.status(), 401);
 
-    let second = client().post(&url).json(&body).send().await.expect("second");
+    let second = client()
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .expect("second");
     assert_eq!(second.status(), 429);
 
     let json: Value = second.json().await.expect("error body");
@@ -456,11 +469,12 @@ async fn the_database_never_holds_a_plaintext_secret() {
     let tokens = login(&app, &email).await;
     let refresh = tokens["refresh_token"].as_str().unwrap().to_owned();
 
-    let stored_hash: String = sqlx::query_scalar("SELECT password_hash FROM users WHERE email = $1")
-        .bind(&email)
-        .fetch_one(&app.state.pool)
-        .await
-        .expect("stored password hash");
+    let stored_hash: String =
+        sqlx::query_scalar("SELECT password_hash FROM users WHERE email = $1")
+            .bind(&email)
+            .fetch_one(&app.state.pool)
+            .await
+            .expect("stored password hash");
 
     assert!(
         stored_hash.starts_with("$argon2id$"),
@@ -488,7 +502,10 @@ async fn the_database_never_holds_a_plaintext_secret() {
             .fetch_one(&app.state.pool)
             .await
             .expect("session count");
-    assert_eq!(session_rows, 1, "one login should create exactly one session");
+    assert_eq!(
+        session_rows, 1,
+        "one login should create exactly one session"
+    );
 }
 
 /// Guards the assumption that the container fixture is typed as expected.

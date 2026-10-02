@@ -41,9 +41,9 @@ async fn database_url() -> &'static str {
     URL.get_or_init(|| async {
         let _ = tracing_subscriber::fmt()
             .with_test_writer()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::new("auth_service=debug,common=debug,warn"),
-            )
+            .with_env_filter(tracing_subscriber::EnvFilter::new(
+                "auth_service=debug,common=debug,warn",
+            ))
             .try_init();
 
         let container = Postgres::default()
@@ -52,10 +52,7 @@ async fn database_url() -> &'static str {
             .await
             .expect("Docker must be running to execute the integration tests");
 
-        let host = container
-            .get_host()
-            .await
-            .expect("container host address");
+        let host = container.get_host().await.expect("container host address");
         let port = container
             .get_host_port_ipv4(5432)
             .await
@@ -75,8 +72,7 @@ async fn database_url() -> &'static str {
 fn key_dir() -> &'static PathBuf {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| {
-        let dir = std::env::temp_dir()
-            .join(format!("auth-service-it-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("auth-service-it-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create key directory");
         dir
     })
@@ -133,12 +129,12 @@ pub async fn start() -> TestApp {
         keys,
     };
 
-    let address = serve(state.clone(), router(state.clone())).await;
+    let address = serve(router(state.clone())).await;
 
     TestApp { address, state }
 }
 
-async fn serve(state: AppState, app: axum::Router) -> SocketAddr {
+async fn serve(app: axum::Router) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind ephemeral port");
@@ -156,7 +152,7 @@ async fn serve(state: AppState, app: axum::Router) -> SocketAddr {
 /// allowance, so throttling can be tested without disturbing the main app.
 pub async fn serve_with_rate_limit(state: &AppState, limit_per_minute: u32) -> SocketAddr {
     let app = auth_service::http::router_with_rate_limit(state.clone(), limit_per_minute);
-    serve(state.clone(), app).await
+    serve(app).await
 }
 
 /// An HTTP client that never follows redirects, so a 3xx cannot mask a 4xx.

@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::Router;
 use axum::extract::{DefaultBodyLimit, Request};
 use axum::http::{HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
@@ -93,14 +93,19 @@ mod tests {
     #[test]
     fn a_parser_built_config_without_origins_produces_no_cors_layer() {
         let pairs = [("DATABASE_URL", "postgres://u:p@localhost:5432/auth")];
-        let get = |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned());
+        let get = |key: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| (*v).to_owned())
+        };
         let cfg = crate::config::Config::from_source(&get).unwrap();
         assert!(cfg.cors_allowed_origins.is_empty());
     }
 
     #[test]
     fn the_body_limit_is_small_enough_to_reject_absurd_payloads() {
-        assert!(MAX_BODY_BYTES <= 64 * 1024);
+        const { assert!(MAX_BODY_BYTES <= 64 * 1024) };
     }
 
     #[test]

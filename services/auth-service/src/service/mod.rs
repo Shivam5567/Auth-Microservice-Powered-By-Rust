@@ -289,10 +289,7 @@ fn ttl_secs(state: &AppState) -> u64 {
     state.config.refresh_token_ttl.as_secs()
 }
 
-async fn commit(
-    tx: sqlx::Transaction<'_, sqlx::Postgres>,
-    what: &'static str,
-) -> AppResult<()> {
+async fn commit(tx: sqlx::Transaction<'_, sqlx::Postgres>, what: &'static str) -> AppResult<()> {
     tx.commit().await.map_err(|e| {
         tracing::error!(error = %e, operation = what, "transaction commit failed");
         AppError::internal("database error")

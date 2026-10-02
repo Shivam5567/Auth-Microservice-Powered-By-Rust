@@ -1,0 +1,14 @@
+# Keep the build context small and secrets out of it.
+target/
+.git/
+.gitignore
+.env
+.env.*
+!.env.example
+keys/
+**/keys/
+*.pem
+README.md
+docker-compose.yml
+Dockerfile
+**/Dockerfile

@@ -81,11 +81,13 @@ impl User {
         tx: &mut Transaction<'_, Postgres>,
         user_id: Uuid,
     ) -> AppResult<()> {
-        sqlx::query("UPDATE users SET token_version = token_version + 1, updated_at = now() WHERE id = $1")
-            .bind(user_id)
-            .execute(&mut **tx)
-            .await
-            .into_app()?;
+        sqlx::query(
+            "UPDATE users SET token_version = token_version + 1, updated_at = now() WHERE id = $1",
+        )
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await
+        .into_app()?;
         Ok(())
     }
 }

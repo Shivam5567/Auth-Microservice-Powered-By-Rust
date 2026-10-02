@@ -1,0 +1,57 @@
+# Local development: the service plus a real Postgres.
+#
+# The signing keys live in a named volume so that restarting the stack does not
+# invalidate every token already in circulation.
+
+name: rust-backend-microservice
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: auth
+      POSTGRES_PASSWORD: auth
+      POSTGRES_DB: auth
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # The service must not start migrating before Postgres accepts queries.
+      test: ["CMD-SHELL", "pg_isready -U auth -d auth"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://auth:auth@postgres:5432/auth
+      BIND_ADDR: 0.0.0.0:8080
+      JWT_PRIVATE_KEY_PATH: /app/keys/private.pem
+      JWT_PUBLIC_KEY_PATH: /app/keys/public.pem
+      JWT_ISSUER: auth-service
+      JWT_AUDIENCE: auth-service-clients
+      ACCESS_TOKEN_TTL_SECONDS: "900"
+      REFRESH_TOKEN_TTL_SECONDS: "2592000"
+      AUTH_RATE_LIMIT_PER_MINUTE: "10"
+      RUN_MIGRATIONS: "true"
+      RUST_LOG: auth_service=info,tower_http=info
+      # Comma-separated; leave unset to send no CORS headers at all.
+      CORS_ALLOWED_ORIGINS: ""
+    ports:
+      - "8080:8080"
+    volumes:
+      - auth-keys:/app/keys
+
+volumes:
+  postgres-data:
+  auth-keys:

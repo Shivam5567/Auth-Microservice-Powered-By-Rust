@@ -34,7 +34,5 @@ pub async fn migrate(pool: &PgPool) -> Result<(), AppError> {
 /// A row that only carries timestamps, used to avoid re-reading a user
 /// profile when all the caller needs is a liveness answer.
 pub async fn ping(pool: &PgPool) -> Result<OffsetDateTime, sqlx::Error> {
-    sqlx::query_scalar("SELECT now()")
-        .fetch_one(pool)
-        .await
+    sqlx::query_scalar("SELECT now()").fetch_one(pool).await
 }

@@ -51,7 +51,10 @@ mod tests {
     #[test]
     fn tokens_are_url_safe_and_unpadded() {
         let issued = generate();
-        assert!(!issued.token.contains('='), "padding breaks header transport");
+        assert!(
+            !issued.token.contains('='),
+            "padding breaks header transport"
+        );
         assert!(
             issued
                 .token
@@ -69,7 +72,12 @@ mod tests {
     #[test]
     fn the_plaintext_token_is_not_recoverable_from_the_digest() {
         let issued = generate();
-        assert!(!issued.hash.windows(issued.token.len()).any(|w| w == issued.token.as_bytes()));
+        assert!(
+            !issued
+                .hash
+                .windows(issued.token.len())
+                .any(|w| w == issued.token.as_bytes())
+        );
     }
 
     #[test]

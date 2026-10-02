@@ -31,7 +31,8 @@ pub struct LoginRequest {
 #[derive(Debug, Deserialize, Validate)]
 pub struct RefreshRequest {
     #[validate(length(min = 1, max = 512, message = "is required"))]
-    pub refresh_token: String,}
+    pub refresh_token: String,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct LogoutRequest {
@@ -143,8 +144,7 @@ mod tests {
 
     #[test]
     fn logout_defaults_to_a_single_session() {
-        let req: LogoutRequest =
-            serde_json::from_str(r#"{"refresh_token":"abc"}"#).unwrap();
+        let req: LogoutRequest = serde_json::from_str(r#"{"refresh_token":"abc"}"#).unwrap();
         assert!(!req.all_devices);
     }
 

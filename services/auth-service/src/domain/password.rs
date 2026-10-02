@@ -58,7 +58,10 @@ mod tests {
     fn hashes_are_salted_so_equal_passwords_differ() {
         let a = hash_password("same-password").unwrap();
         let b = hash_password("same-password").unwrap();
-        assert_ne!(a, b, "identical passwords must not produce identical hashes");
+        assert_ne!(
+            a, b,
+            "identical passwords must not produce identical hashes"
+        );
         assert!(verify_password("same-password", &a));
         assert!(verify_password("same-password", &b));
     }

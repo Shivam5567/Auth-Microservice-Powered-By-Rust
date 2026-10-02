@@ -59,26 +59,19 @@ pub async fn classify(pool: &PgPool, token: &str) -> AppResult<Presented> {
 
 /// Marks a token as exchanged. Returns false if another request got there
 /// first, which is the race that reuse detection depends on.
-pub async fn mark_used(
-    tx: &mut Transaction<'_, Postgres>,
-    id: Uuid,
-) -> AppResult<bool> {
-    let result = sqlx::query(
-        "UPDATE refresh_tokens SET used_at = now() WHERE id = $1 AND used_at IS NULL",
-    )
-    .bind(id)
-    .execute(&mut **tx)
-    .await
-    .into_app()?;
+pub async fn mark_used(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> AppResult<bool> {
+    let result =
+        sqlx::query("UPDATE refresh_tokens SET used_at = now() WHERE id = $1 AND used_at IS NULL")
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .into_app()?;
 
     Ok(result.rows_affected() == 1)
 }
 
 /// Revokes every token descended from one login.
-pub async fn revoke_family(
-    tx: &mut Transaction<'_, Postgres>,
-    family_id: Uuid,
-) -> AppResult<u64> {
+pub async fn revoke_family(tx: &mut Transaction<'_, Postgres>, family_id: Uuid) -> AppResult<u64> {
     let result = sqlx::query(
         "UPDATE refresh_tokens
          SET revoked_at = now()

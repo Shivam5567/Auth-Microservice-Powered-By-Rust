@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::IntoResponse;
 use axum::{Json, http::header::USER_AGENT};
 
 use super::dto::{self, AuthResponse, HealthResponse, UserResponse};
@@ -74,7 +74,9 @@ pub async fn logout(
 }
 
 pub async fn me(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<UserResponse>> {
-    Ok(Json(UserResponse::from(service::me(&state, user.id).await?)))
+    Ok(Json(UserResponse::from(
+        service::me(&state, user.id).await?,
+    )))
 }
 
 /// Liveness: answers as long as the process is running.
@@ -89,7 +91,10 @@ pub async fn health() -> Json<HealthResponse> {
 
 /// Readiness: confirms the database answers, so an orchestrator does not route
 /// traffic to a process that cannot serve a login.
-pub async fn ready(State(state): State<AppState>) -> Result<Json<HealthResponse>, Response> {
+///
+/// Returns `AppResult` so the failure renders in the shared error envelope
+/// rather than as a bespoke body.
+pub async fn ready(State(state): State<AppState>) -> AppResult<Json<HealthResponse>> {
     match crate::db::ping(&state.pool).await {
         Ok(checked_at) => Ok(Json(HealthResponse {
             status: "ok",
@@ -99,16 +104,7 @@ pub async fn ready(State(state): State<AppState>) -> Result<Json<HealthResponse>
         })),
         Err(err) => {
             tracing::error!(error = %err, "readiness probe failed");
-            Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(HealthResponse {
-                    status: "unavailable",
-                    service: "auth-service",
-                    database: Some("unreachable"),
-                    checked_at: None,
-                }),
-            )
-                .into_response())
+            Err(crate::error::AppError::internal("database is unreachable"))
         }
     }
 }

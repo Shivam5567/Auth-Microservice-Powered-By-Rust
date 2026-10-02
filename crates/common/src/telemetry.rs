@@ -23,12 +23,7 @@ pub fn init(service_name: &str) {
             .init();
     } else {
         registry
-            .with(
-                fmt::layer()
-                    .with_target(true)
-                    .with_level(true)
-                    .pretty(),
-            )
+            .with(fmt::layer().with_target(true).with_level(true).pretty())
             .init();
     }
 }

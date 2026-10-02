@@ -12,6 +12,12 @@ async fn main() -> ExitCode {
     // environment, so a failure here is not fatal.
     let _ = dotenvy::dotenv();
 
+    // `docker healthcheck` runs this instead of a server. Answering with a
+    // plain socket keeps curl and wget out of the runtime image.
+    if std::env::args().any(|arg| arg == "--healthcheck") {
+        return healthcheck();
+    }
+
     let config = match Config::from_env() {
         Ok(config) => config,
         Err(err) => {
@@ -62,6 +68,49 @@ async fn main() -> ExitCode {
             tracing::error!(error = %err, "server error");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// Queries the liveness endpoint and reports success as an exit code.
+fn healthcheck() -> ExitCode {
+    use std::io::{Read, Write};
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    let address = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into());
+    // 0.0.0.0 is not connectable; probe over the loopback instead.
+    let target = address
+        .replace("0.0.0.0", "127.0.0.1")
+        .to_socket_addrs()
+        .and_then(|mut addrs| addrs.next().ok_or(std::io::ErrorKind::NotFound.into()))
+        .expect("BIND_ADDR must be a host:port pair");
+
+    let Ok(mut stream) = TcpStream::connect_timeout(&target, Duration::from_secs(2)) else {
+        eprintln!("healthcheck: cannot reach {address}");
+        return ExitCode::FAILURE;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+
+    if stream
+        .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
+        return ExitCode::FAILURE;
+    }
+
+    let mut response = String::new();
+    if stream.read_to_string(&mut response).is_err() {
+        return ExitCode::FAILURE;
+    }
+
+    if response.starts_with("HTTP/1.1 200") {
+        ExitCode::SUCCESS
+    } else {
+        eprintln!(
+            "healthcheck: unexpected response: {}",
+            &response[..response.len().min(80)]
+        );
+        ExitCode::FAILURE
     }
 }
 

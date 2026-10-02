@@ -82,16 +82,27 @@ pub fn verify(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsa::RsaPrivateKey;
     use rsa::pkcs1::EncodeRsaPrivateKey;
-    use rsa::pkcs8::{EncodePublicKey, LineEnding};
-    use rsa::{RsaPrivateKey, RsaPublicKey};
+    use rsa::pkcs8::LineEnding;
+
+    /// A second, unrelated keypair used to prove a forged token is rejected.
+    static OTHER_KEYS: std::sync::LazyLock<SigningKeys> = std::sync::LazyLock::new(|| {
+        SigningKeys::from_private_pem(
+            &RsaPrivateKey::new(&mut rand::rngs::OsRng, 2048)
+                .unwrap()
+                .to_pkcs1_pem(LineEnding::LF)
+                .unwrap(),
+        )
+        .unwrap()
+    });
 
     static KEYS: std::sync::LazyLock<SigningKeys> = std::sync::LazyLock::new(|| {
-        let private = RsaPrivateKey::new(&mut rand::rngs::OsRng, 2048).unwrap();
-        let public = RsaPublicKey::from(&private);
-        SigningKeys::from_pem(
-            &private.to_pkcs1_pem(LineEnding::LF).unwrap(),
-            &public.to_public_key_pem(LineEnding::LF).unwrap(),
+        SigningKeys::from_private_pem(
+            &RsaPrivateKey::new(&mut rand::rngs::OsRng, 2048)
+                .unwrap()
+                .to_pkcs1_pem(LineEnding::LF)
+                .unwrap(),
         )
         .unwrap()
     });
@@ -213,18 +224,14 @@ mod tests {
 
     #[test]
     fn a_token_signed_by_another_key_is_rejected() {
-        static OTHER: std::sync::LazyLock<SigningKeys> = std::sync::LazyLock::new(|| {
-            let private = RsaPrivateKey::new(&mut rand::rngs::OsRng, 2048).unwrap();
-            let public = RsaPublicKey::from(&private);
-            SigningKeys::from_pem(
-                &private.to_pkcs1_pem(LineEnding::LF).unwrap(),
-                &public.to_public_key_pem(LineEnding::LF).unwrap(),
-            )
-            .unwrap()
-        });
-
-        let forged = issue(&OTHER, meta(Duration::from_secs(900)), Uuid::new_v4(), vec![], 0)
-            .unwrap();
+        let forged = issue(
+            &OTHER_KEYS,
+            meta(Duration::from_secs(900)),
+            Uuid::new_v4(),
+            vec![],
+            0,
+        )
+        .unwrap();
         let err = verify(&KEYS, meta(Duration::from_secs(900)), &forged.token).unwrap_err();
         assert_eq!(err.status_code(), 401);
     }

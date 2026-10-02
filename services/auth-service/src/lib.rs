@@ -20,14 +20,16 @@ const PURGE_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 /// Builds the fully wired application state, ready to be served.
 pub async fn build_state(config: Config) -> Result<AppState, AppError> {
-    let keys = Arc::new(
-        domain::keys::SigningKeys::load_or_generate(
-            &config.jwt_private_key_path,
-            &config.jwt_public_key_path,
-        )?,
-    );
+    let keys = Arc::new(domain::keys::SigningKeys::load_or_generate(
+        &config.jwt_private_key_path,
+        &config.jwt_public_key_path,
+    )?);
 
-    let pool = db::connect(config.database_url.expose(), config.database_max_connections).await?;
+    let pool = db::connect(
+        config.database_url.expose(),
+        config.database_max_connections,
+    )
+    .await?;
 
     if config.run_migrations {
         db::migrate(&pool).await?;

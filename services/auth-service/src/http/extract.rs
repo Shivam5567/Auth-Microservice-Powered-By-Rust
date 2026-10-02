@@ -42,8 +42,7 @@ impl FromRequestParts<AppState> for AuthUser {
             .filter(|t| !t.is_empty())
             .ok_or_else(|| AppError::unauthorized("expected a Bearer token"))?;
 
-        let claims: Claims =
-            access_token::verify(&state.keys, state.tokens.metadata(), token)?;
+        let claims: Claims = access_token::verify(&state.keys, state.tokens.metadata(), token)?;
 
         let id = claims
             .user_id()
@@ -89,8 +88,8 @@ pub fn describe_validation(errors: validator::ValidationErrors) -> AppResult<()>
         .into_iter()
         .flat_map(|(field, errors)| {
             errors
-                .into_iter()
-                .map(move |e| format!("{field}: {}", describe(&e)))
+                .iter()
+                .map(move |e| format!("{field}: {}", describe(e)))
         })
         .collect::<Vec<_>>();
 

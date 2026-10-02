@@ -58,11 +58,8 @@ impl Config {
         Self::from_source(get)
     }
 
-    pub fn from_source(
-        get: &dyn Fn(&str) -> Option<String>,
-    ) -> Result<Self, ConfigError> {
-        let database_url =
-            Secret(get("DATABASE_URL").ok_or(ConfigError::Missing("DATABASE_URL"))?);
+    pub fn from_source(get: &dyn Fn(&str) -> Option<String>) -> Result<Self, ConfigError> {
+        let database_url = Secret(get("DATABASE_URL").ok_or(ConfigError::Missing("DATABASE_URL"))?);
 
         let bind_addr = parse_or("BIND_ADDR", get("BIND_ADDR"), "0.0.0.0:8080")?;
         let database_max_connections = parse_or(

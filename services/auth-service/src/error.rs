@@ -32,7 +32,9 @@ mod tests {
 
     #[test]
     fn a_missing_row_becomes_a_404() {
-        let err = Err::<(), _>(sqlx::Error::RowNotFound).into_app().unwrap_err();
+        let err = Err::<(), _>(sqlx::Error::RowNotFound)
+            .into_app()
+            .unwrap_err();
         assert_eq!(err.status_code(), 404);
     }
 
